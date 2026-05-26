@@ -1,31 +1,24 @@
 import streamlit as st
 import os, re, requests, json, math
 from dotenv import load_dotenv
-from supabase import create_client
 import google.generativeai as genai
-from PIL import Image
 import folium
 from streamlit_folium import st_folium
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 MAPBOX = os.getenv("MAPBOX_TOKEN")
 
-st.set_page_config(page_title="GBI", page_icon="🌍", layout="wide")
+st.set_page_config(page_title="GBI", page_icon="X", layout="wide")
 st.markdown("<style>body,.stApp{direction:rtl;text-align:right}</style>", unsafe_allow_html=True)
 
 if 'analysis' not in st.session_state:
     st.session_state.analysis = None
-if 'analysis_b' not in st.session_state:
-    st.session_state.analysis_b = None
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
-if 'project_details' not in st.session_state:
-    st.session_state.project_details = {}
+if 'chat' not in st.session_state:
+    st.session_state.chat = []
 
-st.title("🌍 GBI - مستشار الاستثمار الذكي")
-st.caption("تحليل، خرائط، مقارنة، محادثة - كل شيء بالذكاء الاصطناعي")
+st.title("GBI - مستشار الاستثمار الذكي")
+st.caption("Mapbox + Gemini AI")
 st.markdown("---")
 
 
@@ -40,7 +33,7 @@ def extract_coords(url):
     return None, None
 
 
-def distance_km(lat1, lng1, lat2, lng2):
+def dist_km(lat1, lng1, lat2, lng2):
     R = 6371
     dlat = math.radians(lat2 - lat1)
     dlng = math.radians(lng2 - lng1)
@@ -48,8 +41,8 @@ def distance_km(lat1, lng1, lat2, lng2):
     return R * 2 * math.asin(math.sqrt(a))
 
 
-def search_mapbox(lat, lng, category, limit=20):
-    url = f"https://api.mapbox.com/search/searchbox/v1/category/{category}"
+def search_mapbox(lat, lng, cat, limit=20):
+    url = f"https://api.mapbox.com/search/searchbox/v1/category/{cat}"
     params = {"access_token": MAPBOX, "proximity": f"{lng},{lat}", "limit": limit, "language": "ar"}
     try:
         r = requests.get(url, params=params, timeout=15)
@@ -60,7 +53,7 @@ def search_mapbox(lat, lng, category, limit=20):
     return []
 
 
-def process_places(features, target_lat, target_lng, max_km=5):
+def process(features, tlat, tlng, max_km=5):
     places = []
     seen = set()
     for f in features:
@@ -73,81 +66,83 @@ def process_places(features, target_lat, target_lng, max_km=5):
         plat = coords.get('latitude')
         plng = coords.get('longitude')
         if plat and plng:
-            dist = distance_km(target_lat, target_lng, plat, plng)
-            if dist <= max_km:
-                places.append({'name': name, 'address': props.get('full_address', ''), 'distance': dist, 'lat': plat, 'lng': plng})
-    places.sort(key=lambda x: x['distance'])
+            d = dist_km(tlat, tlng, plat, plng)
+            if d <= max_km:
+                places.append({'name': name, 'addr': props.get('full_address', ''), 'dist': d, 'lat': plat, 'lng': plng})
+    places.sort(key=lambda x: x['dist'])
     return places
 
 
-def comprehensive_scan(lat, lng, radius_km=2):
-    categories = {"restaurant": ("🍽️ مطاعم", "red"), "cafe": ("☕ مقاهي", "orange"), "fast_food": ("🍔 وجبات سريعة", "darkred"), "shopping": ("🛍️ تسوق", "purple"), "fuel": ("⛽ محطات وقود", "black"), "pharmacy": ("💊 صيدليات", "green"), "grocery": ("🛒 بقالات", "blue"), "services": ("🔧 خدمات", "gray"), "entertainment": ("🎮 ترفيه", "pink"), "school": ("🏫 مدارس", "darkblue"), "hospital": ("🏥 مستشفيات", "darkgreen"), "bank": ("🏦 بنوك", "cadetblue")}
+def scan_area(lat, lng, radius=2):
+    cats = {"restaurant": ("مطاعم", "red"), "cafe": ("مقاهي", "orange"), "shopping": ("تسوق", "purple"), "fuel": ("وقود", "black"), "pharmacy": ("صيدليات", "green"), "grocery": ("بقالات", "blue")}
     results = {}
-    for cat, (name_ar, color) in categories.items():
-        features = search_mapbox(lat, lng, cat, limit=15)
-        places = process_places(features, lat, lng, max_km=radius_km)
-        if places:
-            results[cat] = {'name_ar': name_ar, 'color': color, 'places': places, 'count': len(places)}
+    for c, (n, col) in cats.items():
+        f = search_mapbox(lat, lng, c, 15)
+        p = process(f, lat, lng, radius)
+        if p:
+            results[c] = {'name': n, 'color': col, 'places': p, 'count': len(p)}
     return results
 
 
-def ai_discover(scan_results, lat, lng, radius_km):
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    summary = "\n".join([f"- {data['name_ar']}: {data['count']} محل" for cat, data in scan_results.items()])
-    prompt = f"""أنت مستشار استثماري. موقع ({lat}, {lng}) نطاق {radius_km} كم.
-الأنشطة:
-{summary}
-JSON: {{"area_character": "وصف", "activity_level": "نشطة/متوسطة/هادئة", "market_saturation": "مشبع/متوسط/فرص", "missing_services": ["خدمة"], "best_opportunities": [{{"activity": "نشاط", "reason": "السبب", "success_probability": 75, "competition_level": "منخفض", "investment_size": "متوسط", "target_customers": "الفئة"}}], "warnings": ["تحذير"], "overall_recommendation": "ملخص"}}
-JSON فقط."""
-    text = model.generate_content(prompt).text.strip()
-    if '```json' in text:
-        text = text.split('```json')[1].split('```')[0]
-    elif '```' in text:
-        text = text.split('```')[1].split('```')[0]
-    try:
-        return json.loads(text.strip())
-    except:
-        return None
+def make_map(lat, lng, scan, radius):
+    m = folium.Map(location=[lat, lng], zoom_start=14)
+    folium.Marker([lat, lng], popup="الموقع", icon=folium.Icon(color='red')).add_to(m)
+    folium.Circle([lat, lng], radius=radius*1000, color='red', fill=True, fillOpacity=0.05).add_to(m)
+    for c, d in scan.items():
+        for p in d['places']:
+            folium.CircleMarker([p['lat'], p['lng']], radius=6, popup=f"{p['name']} - {p['dist']:.2f} كم", color=d['color'], fill=True).add_to(m)
+    return m
 
 
-def ai_chat(user_message, context):
+def ai_chat(msg, ctx):
     model = genai.GenerativeModel('gemini-2.5-flash')
-    scan_text = "\n".join([f"- {d['name_ar']}: {d['count']} محل" for c, d in context.get('scan', {}).items()])
-    prompt = f"""مستشار استثماري. موقع: {context.get('lat')}, {context.get('lng')} نطاق {context.get('radius')} كم
-الأنشطة: {scan_text}
-تفاصيل: {json.dumps(context.get('details', {}), ensure_ascii=False)}
-سؤال: {user_message}
-أجب باحترافية بالعربية."""
+    txt = "\n".join([f"- {d['name']}: {d['count']}" for c, d in ctx.get('scan', {}).items()])
+    prompt = f"مستشار استثماري. موقع: {ctx.get('lat')}, {ctx.get('lng')}. الأنشطة:\n{txt}\nسؤال: {msg}\nأجب بالعربية."
     return model.generate_content(prompt).text
 
 
-def ai_compare(a, b):
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    a_sum = f"A ({a['lat']}, {a['lng']}):\n" + "\n".join([f"- {d['name_ar']}: {d['count']}" for c, d in a['scan'].items()])
-    b_sum = f"B ({b['lat']}, {b['lng']}):\n" + "\n".join([f"- {d['name_ar']}: {d['count']}" for c, d in b['scan'].items()])
-    prompt = f"""قارن موقعين.
-{a_sum}
-{b_sum}
-JSON: {{"winner": "A أو B", "winner_reason": "السبب", "a_strengths": ["قوة"], "a_weaknesses": ["ضعف"], "b_strengths": ["قوة"], "b_weaknesses": ["ضعف"], "recommended_activities_a": ["نشاط"], "recommended_activities_b": ["نشاط"], "final_verdict": "ملخص"}}
-JSON فقط."""
-    text = model.generate_content(prompt).text.strip()
-    if '```json' in text:
-        text = text.split('```json')[1].split('```')[0]
-    elif '```' in text:
-        text = text.split('```')[1].split('```')[0]
-    try:
-        return json.loads(text.strip())
-    except:
-        return None
+tab1, tab2, tab3 = st.tabs(["التحليل", "الخريطة", "المحادثة"])
 
+with tab1:
+    url = st.text_input("رابط Google Maps:")
+    radius = st.slider("النطاق كم:", 0.5, 10.0, 2.0, 0.5)
+    if st.button("ابدأ التحليل", type="primary"):
+        if url:
+            with st.spinner("استخراج..."):
+                lat, lng = extract_coords(url)
+            if lat:
+                st.success(f"الموقع: {lat:.4f}, {lng:.4f}")
+                with st.spinner("مسح..."):
+                    scan = scan_area(lat, lng, radius)
+                st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'scan': scan}
+                total = sum(d['count'] for d in scan.values())
+                st.metric("إجمالي المحلات", total)
+                for c, d in scan.items():
+                    with st.expander(f"{d['name']} ({d['count']})"):
+                        for p in d['places']:
+                            st.write(f"- {p['name']} - {p['dist']:.2f} كم")
 
-def create_map(lat, lng, scan, radius_km, label="الموقع"):
-    m = folium.Map(location=[lat, lng], zoom_start=14, tiles='OpenStreetMap')
-    folium.Marker([lat, lng], popup=f"<b>📍 {label}</b><br>{lat:.4f}, {lng:.4f}", tooltip=f"📍 {label}", icon=folium.Icon(color='red', icon='star', prefix='fa')).add_to(m)
-    folium.Circle(location=[lat, lng], radius=radius_km * 1000, color='red', fill=True, fillOpacity=0.05, popup=f"نطاق {radius_km} كم").add_to(m)
-    for cat, data in scan.items():
-        for p in data['places']:
-            folium.CircleMarker(location=[p['lat'], p['lng']], radius=6, popup=f"<b>{p['name']}</b><br>{data['name_ar']}<br>📏 {p['distance']:.2f} كم", tooltip=p['name'], color=data['color'], fill=True, fillColor=data['color'], fillOpacity=0.7).add_to(m)
-    return m
+with tab2:
+    if st.session_state.analysis:
+        a = st.session_state.analysis
+        m = make_map(a['lat'], a['lng'], a['scan'], a['radius'])
+        st_folium(m, width=None, height=500, returned_objects=[])
+    else:
+        st.warning("حلل موقع أولاً")
 
-✅ Part 1 savedcat
+with tab3:
+    if st.session_state.analysis:
+        for msg in st.session_state.chat:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+        if ui := st.chat_input("اسأل..."):
+            st.session_state.chat.append({"role": "user", "content": ui})
+            with st.spinner("..."):
+                resp = ai_chat(ui, st.session_state.analysis)
+                st.session_state.chat.append({"role": "assistant", "content": resp})
+            st.rerun()
+    else:
+        st.warning("حلل موقع أولاً")
+
+st.markdown("---")
+st.caption("GBI - Mapbox + Gemini AI")
