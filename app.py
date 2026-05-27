@@ -1,6 +1,7 @@
 import streamlit as st
 import os, re, requests, json, math
 import concurrent.futures
+import time
 from dotenv import load_dotenv
 import google.generativeai as genai
 import folium
@@ -30,7 +31,7 @@ st.markdown("""
     .main-title h1 {color: white; margin: 0; font-size: 72px; font-weight: bold; letter-spacing: 8px; text-shadow: 0 4px 20px rgba(168, 85, 247, 0.4);}
     .main-title p {color: rgba(255,255,255,0.7); margin: 10px 0 0 0; font-size: 14px;}
     
-    .metric-card {background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2); padding: 20px; border-radius: 15px; text-align: center; backdrop-filter: blur(10px);}
+    .metric-card {background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2); padding: 20px; border-radius: 15px; text-align: center;}
     .metric-card h3 {color: #C084FC; margin: 0 0 10px 0; font-size: 14px;}
     .metric-card .value {color: white; font-size: 32px; font-weight: bold; margin: 5px 0;}
     .metric-card .sub {color: rgba(255,255,255,0.6); font-size: 12px;}
@@ -46,6 +47,10 @@ st.markdown("""
     div[data-testid="stExpander"] {background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 10px;}
     
     .stAlert {background: rgba(168, 85, 247, 0.1) !important; border: 1px solid rgba(168, 85, 247, 0.3) !important;}
+    
+    .stProgress > div > div > div > div {background: linear-gradient(90deg, #A855F7 0%, #C084FC 100%) !important;}
+    
+    .progress-text {color: #C084FC; font-size: 16px; text-align: center; margin: 10px 0; font-weight: bold;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -57,7 +62,6 @@ if 'chat' not in st.session_state:
 st.markdown('<div class="main-title"><h1>GBI</h1><p>تحليل شامل للمواقع التجارية واكتشاف الفرص الاستثمارية</p></div>', unsafe_allow_html=True)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def extract_coords(url):
     if 'goo.gl' in url or 'maps.app' in url:
         try:
@@ -112,36 +116,6 @@ def process(features, tlat, tlng, max_km=5):
     return places
 
 
-def scan_area(lat, lng, radius=2):
-    cats = {
-        "restaurant": ("🍽️ مطاعم", "#A855F7"),
-        "cafe": ("☕ مقاهي", "#EC4899"),
-        "shopping": ("🛍️ تسوق", "#8B5CF6"),
-        "fuel": ("⛽ وقود", "#6366F1"),
-        "pharmacy": ("💊 صيدليات", "#10B981"),
-        "grocery": ("🛒 بقالات", "#F59E0B"),
-    }
-    results = {}
-    
-    def fetch(item):
-        c, (n, col) = item
-        f = search_places(lat, lng, c, 15)
-        p = process(f, lat, lng, radius)
-        return c, n, col, p
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-        futures = [executor.submit(fetch, item) for item in cats.items()]
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                c, n, col, p = future.result(timeout=15)
-                if p:
-                    results[c] = {'name': n, 'color': col, 'places': p, 'count': len(p)}
-            except:
-                pass
-    
-    return results
-
-
 def make_map(lat, lng, scan, radius):
     m = folium.Map(location=[lat, lng], zoom_start=14, tiles='CartoDB dark_matter')
     folium.Marker([lat, lng], popup="<b>الموقع</b>", icon=folium.Icon(color='purple', icon='star', prefix='fa')).add_to(m)
@@ -165,7 +139,7 @@ JSON قصير:
         elif '```' in text:
             text = text.split('```')[1].split('```')[0]
         return json.loads(text.strip())
-    except:
+    except Exception as e:
         return None
 
 
@@ -188,16 +162,64 @@ with col3:
     analyze_btn = st.button("🚀 بدء التحليل", type="primary")
 
 if analyze_btn and url:
-    with st.spinner(""):
-        lat, lng = extract_coords(url)
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    status_text.markdown('<p class="progress-text">⏳ 5% - استخراج الإحداثيات...</p>', unsafe_allow_html=True)
+    progress_bar.progress(5)
+    
+    lat, lng = extract_coords(url)
+    
+    if not lat:
+        progress_bar.empty()
+        status_text.empty()
+        st.error("❌ فشل استخراج الإحداثيات. تأكد من الرابط")
+    else:
+        status_text.markdown(f'<p class="progress-text">📍 10% - الموقع: {lat:.4f}, {lng:.4f}</p>', unsafe_allow_html=True)
+        progress_bar.progress(10)
         
-        if not lat:
-            st.error("❌ فشل استخراج الإحداثيات. تأكد من الرابط")
-        else:
-            scan = scan_area(lat, lng, radius)
-            ai_result = ai_analyze(scan, lat, lng, radius)
-            st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'scan': scan, 'ai': ai_result}
-            st.rerun()
+        cats = {
+            "restaurant": ("🍽️ مطاعم", "#A855F7"),
+            "cafe": ("☕ مقاهي", "#EC4899"),
+            "shopping": ("🛍️ تسوق", "#8B5CF6"),
+            "fuel": ("⛽ وقود", "#6366F1"),
+            "pharmacy": ("💊 صيدليات", "#10B981"),
+            "grocery": ("🛒 بقالات", "#F59E0B"),
+        }
+        
+        scan = {}
+        total_cats = len(cats)
+        progress_per_cat = 70 / total_cats
+        current_progress = 10
+        
+        for i, (c, (n, col)) in enumerate(cats.items(), 1):
+            status_text.markdown(f'<p class="progress-text">🔍 {int(current_progress)}% - البحث عن {n} ({i}/{total_cats})...</p>', unsafe_allow_html=True)
+            
+            f = search_places(lat, lng, c, 15)
+            p = process(f, lat, lng, radius)
+            if p:
+                scan[c] = {'name': n, 'color': col, 'places': p, 'count': len(p)}
+            
+            current_progress += progress_per_cat
+            progress_bar.progress(int(current_progress))
+        
+        status_text.markdown('<p class="progress-text">🤖 85% - التحليل الذكي بالذكاء الاصطناعي...</p>', unsafe_allow_html=True)
+        progress_bar.progress(85)
+        
+        ai_result = ai_analyze(scan, lat, lng, radius)
+        
+        status_text.markdown('<p class="progress-text">🗺️ 95% - إعداد الخريطة والنتائج...</p>', unsafe_allow_html=True)
+        progress_bar.progress(95)
+        
+        st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'scan': scan, 'ai': ai_result}
+        
+        status_text.markdown('<p class="progress-text">✅ 100% - اكتمل التحليل!</p>', unsafe_allow_html=True)
+        progress_bar.progress(100)
+        
+        time.sleep(0.5)
+        progress_bar.empty()
+        status_text.empty()
+        st.rerun()
 
 if st.session_state.analysis:
     a = st.session_state.analysis
@@ -243,6 +265,8 @@ if st.session_state.analysis:
                 st.markdown("### 🔍 خدمات مفقودة")
                 for s in ai_r['missing']:
                     st.warning(f"• {s}")
+        else:
+            st.info("💡 التحليل الذكي غير متاح حالياً")
     
     if a['scan']:
         st.markdown('<div class="section-title">📈 توزيع الأنشطة</div>', unsafe_allow_html=True)
