@@ -21,8 +21,7 @@ import plotly.graph_objects as go
 from categories import CATEGORIES, GROUPS, get_categories_by_group
 from analyzer import (
     extract_coords,
-    fetch_places,
-    process_elements,
+    fetch_all_places,
     analyze_location,
     suggest_best_activity,
     ai_enhance_analysis,
@@ -34,6 +33,8 @@ from analyzer import (
 # ============================================================
 load_dotenv()
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GOOGLE_PLACES_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
+FOURSQUARE_KEY = os.getenv("FOURSQUARE_API_KEY", "").strip()
 
 AI_AVAILABLE = False
 genai = None
@@ -470,7 +471,20 @@ if 'target_activity' not in st.session_state:
 # ============================================================
 # Top Bar
 # ============================================================
-api_badge = '<span class="badge-connected">● APIs متصلة</span>' if AI_AVAILABLE else '<span class="badge-disconnected">○ AI غير مفعّل</span>'
+badges = []
+if FOURSQUARE_KEY:
+    badges.append('<span class="badge-connected">● Foursquare</span>')
+if GOOGLE_PLACES_KEY:
+    badges.append('<span class="badge-connected">● Google Places</span>')
+if not FOURSQUARE_KEY and not GOOGLE_PLACES_KEY:
+    badges.append('<span class="badge-disconnected">○ OSM فقط</span>')
+
+if AI_AVAILABLE:
+    badges.append('<span class="badge-connected">● AI</span>')
+else:
+    badges.append('<span class="badge-disconnected">○ AI غير مفعّل</span>')
+
+api_badge = " ".join(badges)
 
 st.markdown(f"""
 <div class="top-bar">
@@ -597,49 +611,58 @@ if analyze_btn:
             progress.progress(15)
             time.sleep(0.2)
 
-            # 2) جلب المحلات من Overpass
-            status.markdown(f'<p class="progress-msg">🔍 30% - جلب المحلات من OpenStreetMap...</p>', unsafe_allow_html=True)
+            # 2) جلب المحلات من كل المصادر المتاحة
+            sources_list = ["OpenStreetMap"]
+            if FOURSQUARE_KEY:
+                sources_list.append("Foursquare")
+            if GOOGLE_PLACES_KEY:
+                sources_list.append("Google Places")
+            sources_label = " + ".join(sources_list)
+            status.markdown(f'<p class="progress-msg">🔍 30% - جلب البيانات من {sources_label}...</p>', unsafe_allow_html=True)
             progress.progress(30)
 
-            elements, err = fetch_places(lat, lng, radius, st.session_state.selected_cats)
+            result = fetch_all_places(
+                lat, lng, radius,
+                google_api_key=GOOGLE_PLACES_KEY or None,
+                foursquare_api_key=FOURSQUARE_KEY or None,
+            )
+            places_by_cat = result['places_by_cat']
 
-            if err and not elements:
+            total_found = sum(len(v) for v in places_by_cat.values())
+
+            if total_found == 0 and result['errors']:
                 progress.empty()
                 status.empty()
-                st.error(f"❌ فشل جلب البيانات: {err}. حاول لاحقاً.")
+                err_msg = " | ".join(result['errors'])
+                st.error(f"❌ لم نعثر على بيانات: {err_msg}")
+                st.info("💡 الحلول: 1) جرب نطاق أوسع (5 كم)  2) أضف FOURSQUARE_API_KEY (مجاني) في .env  3) تأكد من الإحداثيات")
                 st.stop()
 
-            status.markdown(f'<p class="progress-msg">🗂️ 55% - معالجة {len(elements)} عنصر...</p>', unsafe_allow_html=True)
-            progress.progress(55)
+            status.markdown(f'<p class="progress-msg">🗂️ 60% - تم العثور على {total_found} محل في {len(places_by_cat)} فئة...</p>', unsafe_allow_html=True)
+            progress.progress(60)
 
-            # 3) معالجة وتصنيف
-            places_by_cat = process_elements(elements, lat, lng, radius)
+            status.markdown('<p class="progress-msg">🧠 80% - التحليل الذكي...</p>', unsafe_allow_html=True)
+            progress.progress(80)
 
-            status.markdown('<p class="progress-msg">🧠 75% - التحليل الذكي...</p>', unsafe_allow_html=True)
-            progress.progress(75)
-
-            # 4) تحليل
+            # 3) تحليل
             analysis = analyze_location(places_by_cat, radius, st.session_state.target_activity)
+            analysis['sources_used'] = result['sources_used']
 
-            # 5) اقتراح أفضل نشاط
-            suggested_activities = suggest_best_activity(places_by_cat, analysis)
-            analysis['suggested_activities'] = suggested_activities
+            # 4) اقتراح أفضل نشاط
+            analysis['suggested_activities'] = suggest_best_activity(places_by_cat, analysis)
 
-            # 6) تحسين عبر AI
+            # 5) AI
             if AI_AVAILABLE:
-                status.markdown('<p class="progress-msg">✨ 90% - تحسين التحليل عبر AI...</p>', unsafe_allow_html=True)
+                status.markdown('<p class="progress-msg">✨ 90% - تحسين عبر AI...</p>', unsafe_allow_html=True)
                 progress.progress(90)
                 analysis = ai_enhance_analysis(analysis, places_by_cat, lat, lng, AI_AVAILABLE, genai)
 
-            # حفظ النتائج
             st.session_state.analysis = {
-                'lat': lat,
-                'lng': lng,
-                'radius': radius,
+                'lat': lat, 'lng': lng, 'radius': radius,
                 'places_by_cat': places_by_cat,
                 'analysis': analysis,
             }
-            st.session_state.chat = []  # مسح المحادثة السابقة
+            st.session_state.chat = []
 
             status.markdown('<p class="progress-msg">✅ 100% - اكتمل التحليل!</p>', unsafe_allow_html=True)
             progress.progress(100)
