@@ -15,24 +15,37 @@ st.set_page_config(page_title="GBI", page_icon="📊", layout="wide", initial_si
 
 st.markdown("""
 <style>
-    #MainMenu, header, footer, .stDeployButton {visibility: hidden;}
-    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {visibility: hidden;}
+    #MainMenu, header, footer, .stDeployButton {visibility: hidden !important; display: none !important;}
+    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {visibility: hidden !important; display: none !important;}
     [data-testid="manage-app-button"] {display: none !important;}
     .viewerBadge_container__1QSob, .styles_viewerBadge__1yB5_, ._profileContainer_gzau3_53, ._terminalButton_rix23_138 {display: none !important;}
-    div[data-testid="stStatusWidget"] {visibility: hidden;}
+    div[data-testid="stStatusWidget"], div[data-testid="stDecoration"] {display: none !important;}
     .stApp > header {background-color: transparent;}
-    body, .stApp {direction: rtl; text-align: right; background: linear-gradient(135deg, #0f1419 0%, #1a1f2e 100%); color: #fff;}
-    .main-header {background: linear-gradient(90deg, #FF4B4B 0%, #FF6B6B 100%); padding: 25px; border-radius: 15px; margin-bottom: 25px; box-shadow: 0 8px 32px rgba(255,75,75,0.3); text-align: center;}
-    .main-header h1 {color: white; margin: 0; font-size: 48px; font-weight: bold; letter-spacing: 3px;}
-    .main-header p {color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 14px;}
-    .metric-card {background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; text-align: center;}
-    .metric-card h3 {color: #FF6B6B; margin: 0 0 10px 0; font-size: 14px;}
+    iframe[title="streamlit_app"] + div, div[class*="viewerBadge"] {display: none !important;}
+    a[href*="streamlit.io"], a[href*="share.streamlit"] {display: none !important;}
+    
+    body, .stApp {direction: rtl; text-align: right; background: linear-gradient(135deg, #1a0033 0%, #2d1b4e 50%, #1a0033 100%) !important; color: #fff;}
+    
+    .main-title {text-align: center; padding: 40px 20px 30px 20px;}
+    .main-title h1 {color: white; margin: 0; font-size: 72px; font-weight: bold; letter-spacing: 8px; text-shadow: 0 4px 20px rgba(168, 85, 247, 0.4);}
+    .main-title p {color: rgba(255,255,255,0.7); margin: 10px 0 0 0; font-size: 14px;}
+    
+    .metric-card {background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2); padding: 20px; border-radius: 15px; text-align: center; backdrop-filter: blur(10px);}
+    .metric-card h3 {color: #C084FC; margin: 0 0 10px 0; font-size: 14px;}
     .metric-card .value {color: white; font-size: 32px; font-weight: bold; margin: 5px 0;}
     .metric-card .sub {color: rgba(255,255,255,0.6); font-size: 12px;}
-    .section-title {color: #FF6B6B; font-size: 22px; font-weight: bold; margin: 25px 0 15px 0; border-right: 4px solid #FF4B4B; padding-right: 10px;}
-    div[data-testid="stTextInput"] input {background: rgba(255,255,255,0.08) !important; color: white !important; border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 10px !important; padding: 12px !important;}
-    .stButton button {background: linear-gradient(90deg, #FF4B4B 0%, #FF6B6B 100%) !important; color: white !important; border: none !important; padding: 12px 30px !important; border-radius: 10px !important; font-weight: bold !important; width: 100%;}
-    div[data-testid="stExpander"] {background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;}
+    
+    .section-title {color: #C084FC; font-size: 22px; font-weight: bold; margin: 25px 0 15px 0; border-right: 4px solid #A855F7; padding-right: 10px;}
+    
+    div[data-testid="stTextInput"] input {background: rgba(168, 85, 247, 0.1) !important; color: white !important; border: 1px solid rgba(168, 85, 247, 0.3) !important; border-radius: 10px !important; padding: 12px !important;}
+    
+    div[data-testid="stSelectbox"] > div {background: rgba(168, 85, 247, 0.1) !important; border: 1px solid rgba(168, 85, 247, 0.3) !important; border-radius: 10px !important;}
+    
+    .stButton button {background: linear-gradient(90deg, #A855F7 0%, #C084FC 100%) !important; color: white !important; border: none !important; padding: 12px 30px !important; border-radius: 10px !important; font-weight: bold !important; width: 100%; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4);}
+    
+    div[data-testid="stExpander"] {background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 10px;}
+    
+    .stAlert {background: rgba(168, 85, 247, 0.1) !important; border: 1px solid rgba(168, 85, 247, 0.3) !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -41,7 +54,7 @@ if 'analysis' not in st.session_state:
 if 'chat' not in st.session_state:
     st.session_state.chat = []
 
-st.markdown('<div class="main-header"><h1>GBI</h1><p>تحليل شامل للمواقع التجارية واكتشاف الفرص الاستثمارية</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title"><h1>GBI</h1><p>تحليل شامل للمواقع التجارية واكتشاف الفرص الاستثمارية</p></div>', unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -67,12 +80,11 @@ def dist_km(lat1, lng1, lat2, lng2):
     return R * 2 * math.asin(math.sqrt(a))
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
 def search_places(lat, lng, cat, limit=15):
     url = f"https://api.mapbox.com/search/searchbox/v1/category/{cat}"
     params = {"access_token": MAPBOX, "proximity": f"{lng},{lat}", "limit": limit, "language": "ar"}
     try:
-        r = requests.get(url, params=params, timeout=8)
+        r = requests.get(url, params=params, timeout=10)
         if r.status_code == 200:
             return r.json().get('features', [])
     except:
@@ -100,14 +112,14 @@ def process(features, tlat, tlng, max_km=5):
     return places
 
 
-def scan_area_parallel(lat, lng, radius=2):
+def scan_area(lat, lng, radius=2):
     cats = {
-        "restaurant": ("🍽️ مطاعم", "#FF4B4B"),
-        "cafe": ("☕ مقاهي", "#FF8C42"),
-        "shopping": ("🛍️ تسوق", "#9B59B6"),
-        "fuel": ("⛽ وقود", "#2C3E50"),
-        "pharmacy": ("💊 صيدليات", "#27AE60"),
-        "grocery": ("🛒 بقالات", "#3498DB"),
+        "restaurant": ("🍽️ مطاعم", "#A855F7"),
+        "cafe": ("☕ مقاهي", "#EC4899"),
+        "shopping": ("🛍️ تسوق", "#8B5CF6"),
+        "fuel": ("⛽ وقود", "#6366F1"),
+        "pharmacy": ("💊 صيدليات", "#10B981"),
+        "grocery": ("🛒 بقالات", "#F59E0B"),
     }
     results = {}
     
@@ -120,24 +132,27 @@ def scan_area_parallel(lat, lng, radius=2):
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
         futures = [executor.submit(fetch, item) for item in cats.items()]
         for future in concurrent.futures.as_completed(futures):
-            c, n, col, p = future.result()
-            if p:
-                results[c] = {'name': n, 'color': col, 'places': p, 'count': len(p)}
+            try:
+                c, n, col, p = future.result(timeout=15)
+                if p:
+                    results[c] = {'name': n, 'color': col, 'places': p, 'count': len(p)}
+            except:
+                pass
     
     return results
 
 
 def make_map(lat, lng, scan, radius):
     m = folium.Map(location=[lat, lng], zoom_start=14, tiles='CartoDB dark_matter')
-    folium.Marker([lat, lng], popup="<b>الموقع المحدد</b>", icon=folium.Icon(color='red', icon='star', prefix='fa')).add_to(m)
-    folium.Circle([lat, lng], radius=radius*1000, color='#FF4B4B', fill=True, fillOpacity=0.1, weight=2).add_to(m)
+    folium.Marker([lat, lng], popup="<b>الموقع</b>", icon=folium.Icon(color='purple', icon='star', prefix='fa')).add_to(m)
+    folium.Circle([lat, lng], radius=radius*1000, color='#A855F7', fill=True, fillOpacity=0.1, weight=2).add_to(m)
     for c, d in scan.items():
         for p in d['places']:
             folium.CircleMarker([p['lat'], p['lng']], radius=7, popup=f"<b>{p['name']}</b><br>{d['name']}<br>📏 {p['dist']:.2f} كم", tooltip=p['name'], color=d['color'], fill=True, fillColor=d['color'], fillOpacity=0.8, weight=2).add_to(m)
     return m
 
 
-def ai_analyze_fast(scan, lat, lng, radius):
+def ai_analyze(scan, lat, lng, radius):
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
         summary = ", ".join([f"{d['name']}({d['count']})" for c, d in scan.items()])
@@ -173,25 +188,16 @@ with col3:
     analyze_btn = st.button("🚀 بدء التحليل", type="primary")
 
 if analyze_btn and url:
-    progress_text = st.empty()
-    
-    progress_text.markdown("⏳ استخراج الإحداثيات...")
-    lat, lng = extract_coords(url)
-    
-    if not lat:
-        progress_text.empty()
-        st.error("❌ فشل استخراج الإحداثيات. تأكد من الرابط")
-    else:
-        progress_text.markdown(f"📍 الموقع: {lat:.4f}, {lng:.4f}")
-        progress_text.markdown("🔍 مسح المنطقة...")
-        scan = scan_area_parallel(lat, lng, radius)
+    with st.spinner(""):
+        lat, lng = extract_coords(url)
         
-        progress_text.markdown("🤖 تحليل ذكي...")
-        ai_result = ai_analyze_fast(scan, lat, lng, radius)
-        
-        progress_text.empty()
-        st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'scan': scan, 'ai': ai_result}
-        st.rerun()
+        if not lat:
+            st.error("❌ فشل استخراج الإحداثيات. تأكد من الرابط")
+        else:
+            scan = scan_area(lat, lng, radius)
+            ai_result = ai_analyze(scan, lat, lng, radius)
+            st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'scan': scan, 'ai': ai_result}
+            st.rerun()
 
 if st.session_state.analysis:
     a = st.session_state.analysis
@@ -206,7 +212,7 @@ if st.session_state.analysis:
     
     m1, m2, m3, m4 = st.columns(4)
     with m1:
-        color = "#27AE60" if score >= 70 else "#F39C12" if score >= 50 else "#E74C3C"
+        color = "#10B981" if score >= 70 else "#F59E0B" if score >= 50 else "#EF4444"
         st.markdown(f'<div class="metric-card"><h3>نقاط الاستثمار</h3><div class="value" style="color:{color}">{score}/100</div><div class="sub">فرصة استثمارية</div></div>', unsafe_allow_html=True)
     with m2:
         st.markdown(f'<div class="metric-card"><h3>إجمالي المحلات</h3><div class="value">{total}</div><div class="sub">في نطاق {a["radius"]} كم</div></div>', unsafe_allow_html=True)
@@ -248,7 +254,7 @@ if st.session_state.analysis:
             values = [d['count'] for c, d in a['scan'].items()]
             colors_list = [d['color'] for c, d in a['scan'].items()]
             
-            fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.5, marker=dict(colors=colors_list, line=dict(color='#1a1f2e', width=2)), textfont=dict(color='white', size=14))])
+            fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.5, marker=dict(colors=colors_list, line=dict(color='#1a0033', width=2)), textfont=dict(color='white', size=14))])
             fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'), showlegend=True, legend=dict(font=dict(color='white')), height=400, margin=dict(t=20, b=20, l=20, r=20))
             st.plotly_chart(fig, use_container_width=True)
         
