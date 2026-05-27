@@ -32,9 +32,24 @@ from analyzer import (
 # Configuration
 # ============================================================
 load_dotenv()
-GEMINI_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GOOGLE_PLACES_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
-FOURSQUARE_KEY = os.getenv("FOURSQUARE_API_KEY", "").strip()
+
+
+def _read_key(name: str) -> str:
+    """يقرأ المفتاح من Streamlit Secrets أو من environment variables أو .env"""
+    # 1) جرب Streamlit Secrets أولاً (يعمل على Streamlit Cloud)
+    try:
+        val = st.secrets.get(name, "")
+        if val:
+            return str(val).strip()
+    except Exception:
+        pass
+    # 2) جرب environment variables (يعمل محلياً مع .env)
+    return os.getenv(name, "").strip()
+
+
+GEMINI_KEY = _read_key("GEMINI_API_KEY")
+GOOGLE_PLACES_KEY = _read_key("GOOGLE_PLACES_API_KEY")
+FOURSQUARE_KEY = _read_key("FOURSQUARE_API_KEY")
 
 AI_AVAILABLE = False
 genai = None
@@ -584,6 +599,67 @@ with st.expander("⚙️ خيارات متقدمة: اختر الفئات وال
                         st.session_state.selected_cats.remove(cat_key)
     else:
         st.session_state.selected_cats = list(CATEGORIES.keys())
+
+# ============================================================
+# Diagnostic Panel (يساعد المستخدم يعرف إذا المفاتيح شغالة)
+# ============================================================
+with st.expander("🔧 تشخيص حالة الـ APIs"):
+    diag_cols = st.columns(3)
+
+    with diag_cols[0]:
+        if FOURSQUARE_KEY:
+            preview = FOURSQUARE_KEY[:8] + "..." + FOURSQUARE_KEY[-4:] if len(FOURSQUARE_KEY) > 12 else "***"
+            st.success(f"✅ Foursquare: مفعّل\n\n`{preview}`")
+        else:
+            st.error("❌ Foursquare: غير مفعّل\n\nأضف FOURSQUARE_API_KEY في Secrets")
+
+    with diag_cols[1]:
+        if GOOGLE_PLACES_KEY:
+            preview = GOOGLE_PLACES_KEY[:8] + "..." + GOOGLE_PLACES_KEY[-4:] if len(GOOGLE_PLACES_KEY) > 12 else "***"
+            st.success(f"✅ Google Places: مفعّل\n\n`{preview}`")
+        else:
+            st.warning("⚪ Google Places: غير مفعّل\n\n(اختياري - معقد للسعوديين)")
+
+    with diag_cols[2]:
+        if AI_AVAILABLE:
+            preview = GEMINI_KEY[:8] + "..." + GEMINI_KEY[-4:] if len(GEMINI_KEY) > 12 else "***"
+            st.success(f"✅ Gemini AI: مفعّل\n\n`{preview}`")
+        else:
+            if GEMINI_KEY:
+                st.error(f"❌ Gemini: مفتاح موجود لكن فشل التحميل\n\nتأكد من صلاحية المفتاح")
+            else:
+                st.warning("⚪ Gemini AI: غير مفعّل\n\nأضف GEMINI_API_KEY في Secrets")
+
+    # اختبار مباشر لـ Foursquare
+    if FOURSQUARE_KEY:
+        if st.button("🧪 اختبر مفتاح Foursquare الآن", key="test_fsq"):
+            import requests as req_test
+            try:
+                test_r = req_test.get(
+                    "https://api.foursquare.com/v3/places/search",
+                    params={"ll": "24.6918,46.6852", "radius": 1000, "limit": 5},
+                    headers={"Accept": "application/json", "Authorization": FOURSQUARE_KEY},
+                    timeout=10
+                )
+                if test_r.status_code == 200:
+                    data = test_r.json()
+                    count = len(data.get('results', []))
+                    st.success(f"✅ مفتاح Foursquare يعمل! تم العثور على {count} نتيجة اختبارية في الرياض")
+                    if count > 0:
+                        sample = data['results'][0]
+                        st.json({"اسم": sample.get('name'), "categories": [c.get('name') for c in sample.get('categories', [])]})
+                elif test_r.status_code == 401:
+                    st.error("❌ مفتاح Foursquare غير صالح (401 Unauthorized)\n\n"
+                             "الأسباب المحتملة:\n"
+                             "- المفتاح خاطئ أو منتهي\n"
+                             "- استخدمت Personalization API بدل Places API\n"
+                             "- المفتاح من نوع v1 وليس v3")
+                elif test_r.status_code == 429:
+                    st.warning("⚠️ تجاوزت الحد المجاني (50,000 طلب/شهر)")
+                else:
+                    st.error(f"❌ خطأ {test_r.status_code}\n\nالرد: {test_r.text[:200]}")
+            except Exception as e:
+                st.error(f"❌ فشل الاتصال: {e}")
 
 # ============================================================
 # Analysis Trigger
