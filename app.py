@@ -1,6 +1,5 @@
 import streamlit as st
 import os, re, requests, json, math
-import concurrent.futures
 import time
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -9,8 +8,18 @@ from streamlit_folium import st_folium
 import plotly.graph_objects as go
 
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 MAPBOX = os.getenv("MAPBOX_TOKEN")
+
+if GEMINI_KEY:
+    try:
+        genai.configure(api_key=GEMINI_KEY)
+        AI_AVAILABLE = True
+    except:
+        AI_AVAILABLE = False
+else:
+    AI_AVAILABLE = False
 
 st.set_page_config(page_title="GBI", page_icon="📊", layout="wide", initial_sidebar_state="collapsed", menu_items={'Get Help': None, 'Report a bug': None, 'About': None})
 
@@ -126,28 +135,99 @@ def make_map(lat, lng, scan, radius):
     return m
 
 
+def basic_analysis(scan, lat, lng, radius):
+    total = sum(d['count'] for d in scan.values())
+    
+    if total == 0:
+        return {"score": 30, "type": "منطقة هادئة", "competition": "منخفض", "opportunities": ["دراسة الموقع ميدانياً"], "missing": ["معظم الخدمات الأساسية"], "recommendation": "منطقة قليلة النشاط - تحتاج دراسة متعمقة"}
+    
+    cafe_count = scan.get('cafe', {}).get('count', 0)
+    rest_count = scan.get('restaurant', {}).get('count', 0)
+    shop_count = scan.get('shopping', {}).get('count', 0)
+    pharm_count = scan.get('pharmacy', {}).get('count', 0)
+    
+    if total >= 30:
+        score = 75
+        comp = "مرتفع"
+        type_area = "منطقة تجارية نشطة"
+    elif total >= 15:
+        score = 65
+        comp = "متوسط"
+        type_area = "منطقة متوسطة النشاط"
+    elif total >= 5:
+        score = 55
+        comp = "منخفض"
+        type_area = "منطقة هادئة"
+    else:
+        score = 40
+        comp = "منخفض جداً"
+        type_area = "منطقة نائية"
+    
+    opportunities = []
+    missing = []
+    
+    if cafe_count < 3:
+        opportunities.append("مقهى متخصص")
+    if rest_count < 5 and total > 5:
+        opportunities.append("مطعم عائلي")
+    if pharm_count == 0:
+        opportunities.append("صيدلية")
+        missing.append("لا توجد صيدليات في المنطقة")
+    if shop_count < 3:
+        opportunities.append("محل ملابس أو هدايا")
+    
+    if 'fuel' not in scan:
+        missing.append("لا توجد محطات وقود")
+    if 'grocery' not in scan:
+        missing.append("لا توجد بقالات")
+    
+    if not opportunities:
+        opportunities = ["السوق مشبع - يحتاج تميز", "خدمات متخصصة", "نشاط مبتكر"]
+    
+    if score >= 70:
+        rec = f"موقع ممتاز بنشاط تجاري عالٍ ({total} محل). فرص جيدة مع منافسة قائمة."
+    elif score >= 50:
+        rec = f"موقع جيد بنشاط متوسط ({total} محل). فرص متاحة مع دراسة المنافسة."
+    else:
+        rec = f"موقع يحتاج دراسة دقيقة - النشاط محدود ({total} محل)."
+    
+    return {"score": score, "type": type_area, "competition": comp, "opportunities": opportunities[:3], "missing": missing[:3], "recommendation": rec}
+
+
 def ai_analyze(scan, lat, lng, radius):
+    if not AI_AVAILABLE:
+        return basic_analysis(scan, lat, lng, radius)
+    
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
         summary = ", ".join([f"{d['name']}({d['count']})" for c, d in scan.items()])
         prompt = f"""موقع ({lat}, {lng}) {radius}كم. الأنشطة: {summary}
 JSON قصير:
 {{"score": 75, "type": "نوع المنطقة", "competition": "منخفض/متوسط/مرتفع", "opportunities": ["فرصة 1", "2", "3"], "missing": ["مفقود 1"], "recommendation": "توصية قصيرة"}}"""
-        text = model.generate_content(prompt).text.strip()
+        
+        response = model.generate_content(prompt, request_options={"timeout": 15})
+        text = response.text.strip()
+        
         if '```json' in text:
             text = text.split('```json')[1].split('```')[0]
         elif '```' in text:
             text = text.split('```')[1].split('```')[0]
         return json.loads(text.strip())
     except Exception as e:
-        return None
+        return basic_analysis(scan, lat, lng, radius)
 
 
 def ai_chat(msg, ctx):
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    txt = ", ".join([f"{d['name']}({d['count']})" for c, d in ctx.get('scan', {}).items()])
-    prompt = f"موقع: {ctx.get('lat')}, {ctx.get('lng')}. الأنشطة: {txt}\nسؤال: {msg}\nأجب بإيجاز بالعربية."
-    return model.generate_content(prompt).text
+    if not AI_AVAILABLE:
+        return "عذراً، خدمة المحادثة غير متاحة حالياً. يمكنك مراجعة التوصيات أعلاه."
+    
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        txt = ", ".join([f"{d['name']}({d['count']})" for c, d in ctx.get('scan', {}).items()])
+        prompt = f"موقع: {ctx.get('lat')}, {ctx.get('lng')}. الأنشطة: {txt}\nسؤال: {msg}\nأجب بإيجاز بالعربية."
+        return model.generate_content(prompt, request_options={"timeout": 15}).text
+    except:
+        return "حدث خطأ في المحادثة، حاول مرة أخرى."
 
 
 col1, col2, col3 = st.columns([3, 1, 1])
@@ -203,12 +283,12 @@ if analyze_btn and url:
             current_progress += progress_per_cat
             progress_bar.progress(int(current_progress))
         
-        status_text.markdown('<p class="progress-text">🤖 85% - التحليل الذكي بالذكاء الاصطناعي...</p>', unsafe_allow_html=True)
+        status_text.markdown('<p class="progress-text">🤖 85% - التحليل الذكي...</p>', unsafe_allow_html=True)
         progress_bar.progress(85)
         
         ai_result = ai_analyze(scan, lat, lng, radius)
         
-        status_text.markdown('<p class="progress-text">🗺️ 95% - إعداد الخريطة والنتائج...</p>', unsafe_allow_html=True)
+        status_text.markdown('<p class="progress-text">🗺️ 95% - إعداد النتائج...</p>', unsafe_allow_html=True)
         progress_bar.progress(95)
         
         st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'scan': scan, 'ai': ai_result}
@@ -216,7 +296,7 @@ if analyze_btn and url:
         status_text.markdown('<p class="progress-text">✅ 100% - اكتمل التحليل!</p>', unsafe_allow_html=True)
         progress_bar.progress(100)
         
-        time.sleep(0.5)
+        time.sleep(0.3)
         progress_bar.empty()
         status_text.empty()
         st.rerun()
@@ -265,8 +345,6 @@ if st.session_state.analysis:
                 st.markdown("### 🔍 خدمات مفقودة")
                 for s in ai_r['missing']:
                     st.warning(f"• {s}")
-        else:
-            st.info("💡 التحليل الذكي غير متاح حالياً")
     
     if a['scan']:
         st.markdown('<div class="section-title">📈 توزيع الأنشطة</div>', unsafe_allow_html=True)
