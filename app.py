@@ -10,24 +10,18 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 MAPBOX = os.getenv("MAPBOX_TOKEN")
 
-st.set_page_config(page_title="GBI - الاستثمار الذكي", page_icon="📊", layout="wide", initial_sidebar_state="collapsed", menu_items={'Get Help': None, 'Report a bug': None, 'About': None})
+st.set_page_config(page_title="GBI", page_icon="📊", layout="wide", initial_sidebar_state="collapsed", menu_items={'Get Help': None, 'Report a bug': None, 'About': None})
 
 st.markdown("""
 <style>
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-    .stDeployButton {display: none;}
-    [data-testid="stToolbar"] {visibility: hidden;}
-    [data-testid="stDecoration"] {visibility: hidden;}
-    [data-testid="stStatusWidget"] {visibility: hidden;}
-    .viewerBadge_container__1QSob {display: none;}
-    .styles_viewerBadge__1yB5_ {display: none;}
+    #MainMenu, header, footer, .stDeployButton {visibility: hidden;}
+    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {visibility: hidden;}
+    .viewerBadge_container__1QSob, .styles_viewerBadge__1yB5_ {display: none;}
     body, .stApp {direction: rtl; text-align: right; background: linear-gradient(135deg, #0f1419 0%, #1a1f2e 100%); color: #fff;}
-    .main-header {background: linear-gradient(90deg, #FF4B4B 0%, #FF6B6B 100%); padding: 25px; border-radius: 15px; margin-bottom: 25px; box-shadow: 0 8px 32px rgba(255,75,75,0.3);}
-    .main-header h1 {color: white; margin: 0; font-size: 32px; font-weight: bold;}
+    .main-header {background: linear-gradient(90deg, #FF4B4B 0%, #FF6B6B 100%); padding: 25px; border-radius: 15px; margin-bottom: 25px; box-shadow: 0 8px 32px rgba(255,75,75,0.3); text-align: center;}
+    .main-header h1 {color: white; margin: 0; font-size: 48px; font-weight: bold; letter-spacing: 3px;}
     .main-header p {color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 14px;}
-    .metric-card {background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; text-align: center; backdrop-filter: blur(10px);}
+    .metric-card {background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; text-align: center;}
     .metric-card h3 {color: #FF6B6B; margin: 0 0 10px 0; font-size: 14px;}
     .metric-card .value {color: white; font-size: 32px; font-weight: bold; margin: 5px 0;}
     .metric-card .sub {color: rgba(255,255,255,0.6); font-size: 12px;}
@@ -35,6 +29,7 @@ st.markdown("""
     div[data-testid="stTextInput"] input {background: rgba(255,255,255,0.08) !important; color: white !important; border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 10px !important; padding: 12px !important;}
     .stButton button {background: linear-gradient(90deg, #FF4B4B 0%, #FF6B6B 100%) !important; color: white !important; border: none !important; padding: 12px 30px !important; border-radius: 10px !important; font-weight: bold !important; width: 100%;}
     div[data-testid="stExpander"] {background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;}
+    .stSpinner > div {border-color: #FF4B4B transparent transparent transparent !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -43,14 +38,10 @@ if 'analysis' not in st.session_state:
 if 'chat' not in st.session_state:
     st.session_state.chat = []
 
-st.markdown("""
-<div class="main-header">
-    <h1>🌍 GBI - مستشار الاستثمار الذكي</h1>
-    <p>تحليل شامل للمواقع التجارية واكتشاف الفرص الاستثمارية</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>GBI</h1><p>تحليل شامل للمواقع التجارية واكتشاف الفرص الاستثمارية</p></div>', unsafe_allow_html=True)
 
 
+@st.cache_data(ttl=3600)
 def extract_coords(url):
     if 'goo.gl' in url or 'maps.app' in url:
         try:
@@ -73,11 +64,12 @@ def dist_km(lat1, lng1, lat2, lng2):
     return R * 2 * math.asin(math.sqrt(a))
 
 
-def search_places(lat, lng, cat, limit=20):
+@st.cache_data(ttl=1800)
+def search_places(lat, lng, cat, limit=15):
     url = f"https://api.mapbox.com/search/searchbox/v1/category/{cat}"
     params = {"access_token": MAPBOX, "proximity": f"{lng},{lat}", "limit": limit, "language": "ar"}
     try:
-        r = requests.get(url, params=params, timeout=15)
+        r = requests.get(url, params=params, timeout=10)
         if r.status_code == 200:
             return r.json().get('features', [])
     except:
@@ -137,21 +129,19 @@ def make_map(lat, lng, scan, radius):
 def ai_analyze(scan, lat, lng, radius):
     model = genai.GenerativeModel('gemini-2.5-flash')
     summary = "\n".join([f"- {d['name']}: {d['count']} محل" for c, d in scan.items()])
-    prompt = f"""أنت مستشار استثماري خبير. حلل هذا الموقع ({lat}, {lng}) في نطاق {radius} كم.
-
-الأنشطة الموجودة:
+    prompt = f"""مستشار استثماري. حلل موقع ({lat}, {lng}) نطاق {radius} كم.
+الأنشطة:
 {summary}
-
-أعطني JSON:
+JSON:
 {{
   "investment_score": 75,
   "area_type": "وصف المنطقة",
   "competition_level": "منخفض/متوسط/مرتفع",
   "best_opportunities": ["نشاط 1", "نشاط 2", "نشاط 3"],
-  "missing_services": ["خدمة مفقودة 1", "خدمة 2"],
-  "strengths": ["نقطة قوة 1", "2"],
+  "missing_services": ["خدمة 1", "خدمة 2"],
+  "strengths": ["نقطة 1", "2"],
   "warnings": ["تحذير 1"],
-  "recommendation": "توصية نهائية بالعربية"
+  "recommendation": "توصية بالعربية"
 }}
 JSON فقط."""
     try:
@@ -172,31 +162,26 @@ def ai_chat(msg, ctx):
     return model.generate_content(prompt).text
 
 
-col_input1, col_input2, col_input3 = st.columns([3, 1, 1])
+col1, col2, col3 = st.columns([3, 1, 1])
 
-with col_input1:
-    url = st.text_input("🔗 أدخل رابط الموقع", placeholder="https://maps.app.goo.gl/...", label_visibility="collapsed")
+with col1:
+    url = st.text_input("رابط", placeholder="https://maps.app.goo.gl/...", label_visibility="collapsed")
 
-with col_input2:
+with col2:
     radius = st.selectbox("النطاق", [0.5, 1.0, 2.0, 3.0, 5.0, 10.0], index=2, format_func=lambda x: f"{x} كم")
 
-with col_input3:
+with col3:
     analyze_btn = st.button("🚀 بدء التحليل", type="primary")
 
 if analyze_btn and url:
-    with st.spinner("⏳ جاري استخراج الإحداثيات..."):
+    with st.spinner(""):
         lat, lng = extract_coords(url)
-    
-    if not lat:
-        st.error("❌ فشل استخراج الإحداثيات. تأكد من الرابط")
-    else:
-        with st.spinner("🔍 جاري مسح المنطقة..."):
+        if lat:
             scan = scan_area(lat, lng, radius)
-        
-        with st.spinner("🤖 الذكاء الاصطناعي يحلل..."):
             ai_result = ai_analyze(scan, lat, lng, radius)
-        
-        st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'scan': scan, 'ai': ai_result}
+            st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'scan': scan, 'ai': ai_result}
+        else:
+            st.error("❌ فشل استخراج الإحداثيات")
 
 if st.session_state.analysis:
     a = st.session_state.analysis
@@ -207,7 +192,7 @@ if st.session_state.analysis:
     comp_level = ai_r.get('competition_level', 'متوسط')
     area_type = ai_r.get('area_type', 'منطقة')
     
-    st.markdown('<div class="section-title">📊 لوحة المؤشرات الرئيسية</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">📊 لوحة المؤشرات</div>', unsafe_allow_html=True)
     
     m1, m2, m3, m4 = st.columns(4)
     with m1:
@@ -230,7 +215,7 @@ if st.session_state.analysis:
     
     with info_col:
         if ai_r:
-            st.markdown("### 💡 توصية المستشار")
+            st.markdown("### 💡 التوصية")
             st.info(ai_r.get('recommendation', ''))
             
             if ai_r.get('best_opportunities'):
@@ -244,7 +229,7 @@ if st.session_state.analysis:
                     st.warning(f"• {s}")
     
     if a['scan']:
-        st.markdown('<div class="section-title">📈 توزيع الأنشطة في المنطقة</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">📈 توزيع الأنشطة</div>', unsafe_allow_html=True)
         
         chart_col, list_col = st.columns([1, 1])
         
@@ -288,16 +273,7 @@ if st.session_state.analysis:
     
     if ui := st.chat_input("اسأل عن الموقع، الفرص، المنافسة..."):
         st.session_state.chat.append({"role": "user", "content": ui})
-        with st.spinner("🤖 المستشار يفكر..."):
+        with st.spinner(""):
             resp = ai_chat(ui, a)
             st.session_state.chat.append({"role": "assistant", "content": resp})
         st.rerun()
-
-else:
-    st.markdown("""
-    <div style="text-align: center; padding: 60px 20px; background: rgba(255,255,255,0.03); border-radius: 20px; margin-top: 20px;">
-        <h2 style="color: #FF6B6B;">👋 مرحباً بك في GBI</h2>
-        <p style="color: rgba(255,255,255,0.7); font-size: 16px; margin-top: 15px;">منصة دراسة الجدوى الذكية للمواقع التجارية</p>
-        <p style="color: rgba(255,255,255,0.5); margin-top: 30px;">أدخل رابط Google Maps أعلاه لبدء التحليل الشامل</p>
-    </div>
-    """, unsafe_allow_html=True)
