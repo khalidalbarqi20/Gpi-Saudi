@@ -1,7 +1,7 @@
-streamlit
-python-dotenv
-google-generativeai
-requests
-folium
-streamlit-folium
-plotly
+streamlit>=1.32.0
+python-dotenv>=1.0.0
+google-generativeai>=0.5.0
+requests>=2.31.0
+folium>=0.15.0
+streamlit-folium>=0.18.0
+plotly>=5.18.0
