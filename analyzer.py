@@ -444,31 +444,42 @@ def fetch_foursquare(lat: float, lng: float, radius_km: float, api_key: str):
         "10024,10032,19022",             # Entertainment (cinema, nightclub, parking)
     ]
 
+    # ============================================================
+    # ملاحظة: نستخدم الـ endpoint الجديد places-api.foursquare.com
+    # القديم api.foursquare.com/v3 أصبح deprecated وقد يعطي 410
+    # المفاتيح الجديدة تعمل فقط مع الـ endpoint الجديد
+    # ============================================================
+    NEW_URL = "https://places-api.foursquare.com/places/search"
+    headers_common = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "X-Places-Api-Version": "2025-06-17",
+    }
+
     for cat_str in category_groups:
         try:
-            url = "https://api.foursquare.com/v3/places/search"
             params = {
                 "ll": f"{lat},{lng}",
                 "radius": radius_m,
-                "categories": cat_str,
-                "limit": 50,                 # حد أقصى
+                "fsq_category_ids": cat_str,   # اسم الـ parameter تغيّر في الجديد
+                "limit": 50,
                 "sort": "DISTANCE",
-                "fields": "fsq_id,name,location,categories,geocodes,distance,rating,stats",
+                "fields": "fsq_place_id,name,location,categories,latitude,longitude,distance,rating,stats",
             }
-            headers = {
-                "Accept": "application/json",
-                "Authorization": api_key,    # Foursquare يستخدم API key مباشرة
-            }
-            r = requests.get(url, params=params, headers=headers, timeout=20)
+            r = requests.get(NEW_URL, params=params, headers=headers_common, timeout=20)
             if r.status_code == 200:
                 data = r.json()
                 for place in data.get("results", []):
-                    pid = place.get("fsq_id")
+                    # الجديد يستخدم fsq_place_id بدل fsq_id
+                    pid = place.get("fsq_place_id") or place.get("fsq_id")
                     if pid and pid not in seen_ids:
                         seen_ids.add(pid)
                         all_results.append(place)
             elif r.status_code == 401:
-                return all_results, "مفتاح Foursquare غير صالح"
+                return all_results, "مفتاح Foursquare غير صالح (401)"
+            elif r.status_code == 410:
+                # الـ endpoint القديم - تجاهل ولا تكرر المحاولة
+                return all_results, "Foursquare: endpoint قديم"
             elif r.status_code == 429:
                 time.sleep(2)
         except Exception:
@@ -482,22 +493,17 @@ def fetch_foursquare(lat: float, lng: float, radius_km: float, api_key: str):
 
     for query in text_queries:
         try:
-            url = "https://api.foursquare.com/v3/places/search"
             params = {
                 "ll": f"{lat},{lng}",
                 "radius": radius_m,
                 "query": query,
                 "limit": 50,
-                "fields": "fsq_id,name,location,categories,geocodes,distance,rating,stats",
+                "fields": "fsq_place_id,name,location,categories,latitude,longitude,distance,rating,stats",
             }
-            headers = {
-                "Accept": "application/json",
-                "Authorization": api_key,
-            }
-            r = requests.get(url, params=params, headers=headers, timeout=15)
+            r = requests.get(NEW_URL, params=params, headers=headers_common, timeout=15)
             if r.status_code == 200:
                 for place in r.json().get("results", []):
-                    pid = place.get("fsq_id")
+                    pid = place.get("fsq_place_id") or place.get("fsq_id")
                     if pid and pid not in seen_ids:
                         seen_ids.add(pid)
                         all_results.append(place)
@@ -617,11 +623,23 @@ def merge_and_process(osm_elements: list, google_places: list, foursquare_places
 
     # ===== Foursquare =====
     for place in foursquare_places:
-        # Foursquare يضع الإحداثيات في geocodes.main
-        geocodes = place.get("geocodes", {}) or {}
-        main = geocodes.get("main", {}) or {}
-        plat = main.get("latitude")
-        plng = main.get("longitude")
+        # الـ API الجديد يضع latitude/longitude مباشرة في الـ root
+        # القديم كان يضعها في geocodes.main
+        plat = place.get("latitude")
+        plng = place.get("longitude")
+
+        # fallback للـ API القديم لو ظهر
+        if not plat or not plng:
+            geocodes = place.get("geocodes", {}) or {}
+            main = geocodes.get("main", {}) or {}
+            plat = main.get("latitude")
+            plng = main.get("longitude")
+
+        # fallback إضافي للـ location object
+        if not plat or not plng:
+            loc = place.get("location", {}) or {}
+            plat = loc.get("latitude") or loc.get("lat")
+            plng = loc.get("longitude") or loc.get("lng")
 
         if not plat or not plng:
             continue
