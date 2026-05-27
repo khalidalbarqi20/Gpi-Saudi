@@ -1,5 +1,6 @@
 import streamlit as st
 import os, re, requests, json, math
+import concurrent.futures
 from dotenv import load_dotenv
 import google.generativeai as genai
 import folium
@@ -16,7 +17,10 @@ st.markdown("""
 <style>
     #MainMenu, header, footer, .stDeployButton {visibility: hidden;}
     [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {visibility: hidden;}
-    .viewerBadge_container__1QSob, .styles_viewerBadge__1yB5_ {display: none;}
+    [data-testid="manage-app-button"] {display: none !important;}
+    .viewerBadge_container__1QSob, .styles_viewerBadge__1yB5_, ._profileContainer_gzau3_53, ._terminalButton_rix23_138 {display: none !important;}
+    div[data-testid="stStatusWidget"] {visibility: hidden;}
+    .stApp > header {background-color: transparent;}
     body, .stApp {direction: rtl; text-align: right; background: linear-gradient(135deg, #0f1419 0%, #1a1f2e 100%); color: #fff;}
     .main-header {background: linear-gradient(90deg, #FF4B4B 0%, #FF6B6B 100%); padding: 25px; border-radius: 15px; margin-bottom: 25px; box-shadow: 0 8px 32px rgba(255,75,75,0.3); text-align: center;}
     .main-header h1 {color: white; margin: 0; font-size: 48px; font-weight: bold; letter-spacing: 3px;}
@@ -29,7 +33,6 @@ st.markdown("""
     div[data-testid="stTextInput"] input {background: rgba(255,255,255,0.08) !important; color: white !important; border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 10px !important; padding: 12px !important;}
     .stButton button {background: linear-gradient(90deg, #FF4B4B 0%, #FF6B6B 100%) !important; color: white !important; border: none !important; padding: 12px 30px !important; border-radius: 10px !important; font-weight: bold !important; width: 100%;}
     div[data-testid="stExpander"] {background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;}
-    .stSpinner > div {border-color: #FF4B4B transparent transparent transparent !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -41,11 +44,11 @@ if 'chat' not in st.session_state:
 st.markdown('<div class="main-header"><h1>GBI</h1><p>تحليل شامل للمواقع التجارية واكتشاف الفرص الاستثمارية</p></div>', unsafe_allow_html=True)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def extract_coords(url):
     if 'goo.gl' in url or 'maps.app' in url:
         try:
-            r = requests.get(url, allow_redirects=True, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            r = requests.get(url, allow_redirects=True, timeout=8, headers={'User-Agent': 'Mozilla/5.0'})
             url = r.url
         except:
             return None, None
@@ -64,12 +67,12 @@ def dist_km(lat1, lng1, lat2, lng2):
     return R * 2 * math.asin(math.sqrt(a))
 
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=1800, show_spinner=False)
 def search_places(lat, lng, cat, limit=15):
     url = f"https://api.mapbox.com/search/searchbox/v1/category/{cat}"
     params = {"access_token": MAPBOX, "proximity": f"{lng},{lat}", "limit": limit, "language": "ar"}
     try:
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(url, params=params, timeout=8)
         if r.status_code == 200:
             return r.json().get('features', [])
     except:
@@ -97,7 +100,7 @@ def process(features, tlat, tlng, max_km=5):
     return places
 
 
-def scan_area(lat, lng, radius=2):
+def scan_area_parallel(lat, lng, radius=2):
     cats = {
         "restaurant": ("🍽️ مطاعم", "#FF4B4B"),
         "cafe": ("☕ مقاهي", "#FF8C42"),
@@ -105,14 +108,22 @@ def scan_area(lat, lng, radius=2):
         "fuel": ("⛽ وقود", "#2C3E50"),
         "pharmacy": ("💊 صيدليات", "#27AE60"),
         "grocery": ("🛒 بقالات", "#3498DB"),
-        "services": ("🔧 خدمات", "#95A5A6"),
     }
     results = {}
-    for c, (n, col) in cats.items():
+    
+    def fetch(item):
+        c, (n, col) = item
         f = search_places(lat, lng, c, 15)
         p = process(f, lat, lng, radius)
-        if p:
-            results[c] = {'name': n, 'color': col, 'places': p, 'count': len(p)}
+        return c, n, col, p
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [executor.submit(fetch, item) for item in cats.items()]
+        for future in concurrent.futures.as_completed(futures):
+            c, n, col, p = future.result()
+            if p:
+                results[c] = {'name': n, 'color': col, 'places': p, 'count': len(p)}
+    
     return results
 
 
@@ -126,25 +137,13 @@ def make_map(lat, lng, scan, radius):
     return m
 
 
-def ai_analyze(scan, lat, lng, radius):
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    summary = "\n".join([f"- {d['name']}: {d['count']} محل" for c, d in scan.items()])
-    prompt = f"""مستشار استثماري. حلل موقع ({lat}, {lng}) نطاق {radius} كم.
-الأنشطة:
-{summary}
-JSON:
-{{
-  "investment_score": 75,
-  "area_type": "وصف المنطقة",
-  "competition_level": "منخفض/متوسط/مرتفع",
-  "best_opportunities": ["نشاط 1", "نشاط 2", "نشاط 3"],
-  "missing_services": ["خدمة 1", "خدمة 2"],
-  "strengths": ["نقطة 1", "2"],
-  "warnings": ["تحذير 1"],
-  "recommendation": "توصية بالعربية"
-}}
-JSON فقط."""
+def ai_analyze_fast(scan, lat, lng, radius):
     try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        summary = ", ".join([f"{d['name']}({d['count']})" for c, d in scan.items()])
+        prompt = f"""موقع ({lat}, {lng}) {radius}كم. الأنشطة: {summary}
+JSON قصير:
+{{"score": 75, "type": "نوع المنطقة", "competition": "منخفض/متوسط/مرتفع", "opportunities": ["فرصة 1", "2", "3"], "missing": ["مفقود 1"], "recommendation": "توصية قصيرة"}}"""
         text = model.generate_content(prompt).text.strip()
         if '```json' in text:
             text = text.split('```json')[1].split('```')[0]
@@ -157,8 +156,8 @@ JSON فقط."""
 
 def ai_chat(msg, ctx):
     model = genai.GenerativeModel('gemini-2.5-flash')
-    txt = "\n".join([f"- {d['name']}: {d['count']}" for c, d in ctx.get('scan', {}).items()])
-    prompt = f"مستشار استثماري. موقع: {ctx.get('lat')}, {ctx.get('lng')}. الأنشطة:\n{txt}\nسؤال: {msg}\nأجب بالعربية باحترافية."
+    txt = ", ".join([f"{d['name']}({d['count']})" for c, d in ctx.get('scan', {}).items()])
+    prompt = f"موقع: {ctx.get('lat')}, {ctx.get('lng')}. الأنشطة: {txt}\nسؤال: {msg}\nأجب بإيجاز بالعربية."
     return model.generate_content(prompt).text
 
 
@@ -168,29 +167,40 @@ with col1:
     url = st.text_input("رابط", placeholder="https://maps.app.goo.gl/...", label_visibility="collapsed")
 
 with col2:
-    radius = st.selectbox("النطاق", [0.5, 1.0, 2.0, 3.0, 5.0, 10.0], index=2, format_func=lambda x: f"{x} كم")
+    radius = st.selectbox("النطاق", [0.5, 1.0, 2.0, 3.0, 5.0], index=2, format_func=lambda x: f"{x} كم")
 
 with col3:
     analyze_btn = st.button("🚀 بدء التحليل", type="primary")
 
 if analyze_btn and url:
-    with st.spinner(""):
-        lat, lng = extract_coords(url)
-        if lat:
-            scan = scan_area(lat, lng, radius)
-            ai_result = ai_analyze(scan, lat, lng, radius)
-            st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'scan': scan, 'ai': ai_result}
-        else:
-            st.error("❌ فشل استخراج الإحداثيات")
+    progress_text = st.empty()
+    
+    progress_text.markdown("⏳ استخراج الإحداثيات...")
+    lat, lng = extract_coords(url)
+    
+    if not lat:
+        progress_text.empty()
+        st.error("❌ فشل استخراج الإحداثيات. تأكد من الرابط")
+    else:
+        progress_text.markdown(f"📍 الموقع: {lat:.4f}, {lng:.4f}")
+        progress_text.markdown("🔍 مسح المنطقة...")
+        scan = scan_area_parallel(lat, lng, radius)
+        
+        progress_text.markdown("🤖 تحليل ذكي...")
+        ai_result = ai_analyze_fast(scan, lat, lng, radius)
+        
+        progress_text.empty()
+        st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'scan': scan, 'ai': ai_result}
+        st.rerun()
 
 if st.session_state.analysis:
     a = st.session_state.analysis
     total = sum(d['count'] for d in a['scan'].values())
     ai_r = a.get('ai') or {}
     
-    score = ai_r.get('investment_score', 50)
-    comp_level = ai_r.get('competition_level', 'متوسط')
-    area_type = ai_r.get('area_type', 'منطقة')
+    score = ai_r.get('score', 50)
+    comp_level = ai_r.get('competition', 'متوسط')
+    area_type = ai_r.get('type', 'منطقة')
     
     st.markdown('<div class="section-title">📊 لوحة المؤشرات</div>', unsafe_allow_html=True)
     
@@ -218,14 +228,14 @@ if st.session_state.analysis:
             st.markdown("### 💡 التوصية")
             st.info(ai_r.get('recommendation', ''))
             
-            if ai_r.get('best_opportunities'):
+            if ai_r.get('opportunities'):
                 st.markdown("### 🎯 أفضل الفرص")
-                for opp in ai_r['best_opportunities']:
+                for opp in ai_r['opportunities']:
                     st.success(f"✨ {opp}")
             
-            if ai_r.get('missing_services'):
+            if ai_r.get('missing'):
                 st.markdown("### 🔍 خدمات مفقودة")
-                for s in ai_r['missing_services']:
+                for s in ai_r['missing']:
                     st.warning(f"• {s}")
     
     if a['scan']:
@@ -250,20 +260,6 @@ if st.session_state.analysis:
                         st.write(f"• **{p['name']}** - {p['dist']:.2f} كم")
                         if p['addr']:
                             st.caption(f"  📍 {p['addr']}")
-    
-    if ai_r and (ai_r.get('strengths') or ai_r.get('warnings')):
-        st.markdown('<div class="section-title">⚖️ نقاط القوة والتحذيرات</div>', unsafe_allow_html=True)
-        sw1, sw2 = st.columns(2)
-        with sw1:
-            if ai_r.get('strengths'):
-                st.markdown("### ✅ نقاط القوة")
-                for s in ai_r['strengths']:
-                    st.success(s)
-        with sw2:
-            if ai_r.get('warnings'):
-                st.markdown("### ⚠️ تحذيرات")
-                for w in ai_r['warnings']:
-                    st.warning(w)
     
     st.markdown('<div class="section-title">💬 اسأل المستشار</div>', unsafe_allow_html=True)
     
