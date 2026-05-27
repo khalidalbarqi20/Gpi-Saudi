@@ -636,9 +636,14 @@ with st.expander("🔧 تشخيص حالة الـ APIs"):
             import requests as req_test
             try:
                 test_r = req_test.get(
-                    "https://api.foursquare.com/v3/places/search",
-                    params={"ll": "24.6918,46.6852", "radius": 1000, "limit": 5},
-                    headers={"Accept": "application/json", "Authorization": FOURSQUARE_KEY},
+                    "https://places-api.foursquare.com/places/search",
+                    params={"ll": "24.6918,46.6852", "radius": 1000, "limit": 5,
+                            "fields": "fsq_place_id,name,latitude,longitude,categories"},
+                    headers={
+                        "Accept": "application/json",
+                        "Authorization": f"Bearer {FOURSQUARE_KEY}",
+                        "X-Places-Api-Version": "2025-06-17",
+                    },
                     timeout=10
                 )
                 if test_r.status_code == 200:
@@ -647,17 +652,26 @@ with st.expander("🔧 تشخيص حالة الـ APIs"):
                     st.success(f"✅ مفتاح Foursquare يعمل! تم العثور على {count} نتيجة اختبارية في الرياض")
                     if count > 0:
                         sample = data['results'][0]
-                        st.json({"اسم": sample.get('name'), "categories": [c.get('name') for c in sample.get('categories', [])]})
+                        st.json({
+                            "اسم": sample.get('name'),
+                            "lat": sample.get('latitude'),
+                            "lng": sample.get('longitude'),
+                            "categories": [c.get('name') for c in sample.get('categories', [])][:3],
+                        })
                 elif test_r.status_code == 401:
-                    st.error("❌ مفتاح Foursquare غير صالح (401 Unauthorized)\n\n"
-                             "الأسباب المحتملة:\n"
-                             "- المفتاح خاطئ أو منتهي\n"
-                             "- استخدمت Personalization API بدل Places API\n"
-                             "- المفتاح من نوع v1 وليس v3")
+                    st.error("❌ مفتاح Foursquare غير صالح (401)\n\n"
+                             "تأكد من:\n"
+                             "1. المفتاح من نوع 'Service API Key'\n"
+                             "2. لا توجد مسافات في المفتاح\n"
+                             "3. المفتاح كامل")
+                elif test_r.status_code == 410:
+                    st.error("❌ Endpoint قديم (410)\n\n"
+                             "يبدو أن الكود ما زال يستخدم النسخة القديمة. "
+                             "أعد تنزيل آخر إصدار من analyzer.py")
                 elif test_r.status_code == 429:
-                    st.warning("⚠️ تجاوزت الحد المجاني (50,000 طلب/شهر)")
+                    st.warning("⚠️ تجاوزت الحد المجاني")
                 else:
-                    st.error(f"❌ خطأ {test_r.status_code}\n\nالرد: {test_r.text[:200]}")
+                    st.error(f"❌ خطأ {test_r.status_code}\n\nالرد: {test_r.text[:300]}")
             except Exception as e:
                 st.error(f"❌ فشل الاتصال: {e}")
 
