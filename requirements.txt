@@ -4,4 +4,4 @@ google-generativeai
 requests
 folium
 streamlit-folium
-Pillow
+plotly
