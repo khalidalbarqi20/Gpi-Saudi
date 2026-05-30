@@ -2050,13 +2050,12 @@ if st.session_state.analysis:
         with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
             st.write(msg["content"])
     user_msg = st.chat_input("اسأل عن الموقع، الفرص، المنافسة...")
-if user_msg:
+    if user_msg:
         st.session_state.chat.append({"role": "user", "content": user_msg})
         with st.spinner("جارٍ التفكير..."):
             response = ai_chat(user_msg, a, pbc, lat, lng)
         st.session_state.chat.append({"role": "assistant", "content": response})
         st.rerun()
-
 else:
     st.markdown("""
     <div style="text-align:center; padding:60px 20px; background:#131826; border-radius:18px; border:1px solid #1f2937; margin-top:24px;">
