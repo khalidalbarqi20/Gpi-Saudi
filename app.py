@@ -987,6 +987,444 @@ def ai_chat(msg, analysis, pbc, lat, lng):
 
 
 # ============================================================
+# بناء تقرير HTML قابل للطباعة (PDF عبر المتصفح)
+# ============================================================
+def build_report_html(a, pbc, lat, lng, radius):
+    """يولّد تقرير HTML قابل للطباعة كـ PDF عبر المتصفح"""
+    from datetime import datetime
+    now = datetime.now().strftime("%Y/%m/%d - %H:%M")
+
+    # ====== رأس التقرير ======
+    header = f"""
+    <div class="report-header">
+        <div class="logo">📊 GBI</div>
+        <div class="header-info">
+            <h1>تقرير تحليل الموقع التجاري</h1>
+            <div class="meta">
+                <span>📅 {now}</span>
+                <span>📍 {lat:.4f}, {lng:.4f}</span>
+                <span>📏 نطاق {radius} كم</span>
+            </div>
+        </div>
+    </div>
+    """
+
+    # ====== القرار النهائي ======
+    conf = a.get('confidence', {})
+    decision_section = f"""
+    <div class="section verdict" style="border-color: {a['decision_color']}; background: {a['decision_bg']};">
+        <div class="verdict-label">🎯 القرار النهائي</div>
+        <h2 style="color: {a['decision_color']};">{a['decision_emoji']} {a['decision']}</h2>
+        <div class="verdict-score">نقاط الاستثمار: <b>{a['investment_score']}/100</b>
+            &nbsp;|&nbsp; ثقة التحليل: <b style="color:{conf.get('color', '#94a3b8')}">{conf.get('score', 0)}% ({conf.get('level', '-')})</b>
+        </div>
+        <p class="verdict-text">{a.get('ai_recommendation') if a.get('ai_enhanced') else a['decision_summary']}</p>
+    </div>
+    """
+
+    # ====== المؤشرات الثلاث ======
+    opp = a['opportunity_score']
+    sat = a['saturation_score']
+    dem = a['demand_score']
+    metrics_section = f"""
+    <div class="section">
+        <h3>📊 المؤشرات الأساسية</h3>
+        <div class="metrics-grid">
+            <div class="metric"><div class="metric-icon">🎯</div><div class="metric-label">فرصة الدخول</div><div class="metric-value" style="color:{'#10b981' if opp>=60 else '#f59e0b' if opp>=35 else '#ef4444'};">{opp}%</div></div>
+            <div class="metric"><div class="metric-icon">📈</div><div class="metric-label">تشبع السوق</div><div class="metric-value" style="color:{'#ef4444' if sat>=70 else '#f59e0b' if sat>=40 else '#10b981'};">{sat}%</div></div>
+            <div class="metric"><div class="metric-icon">🔥</div><div class="metric-label">الطلب المتوقع</div><div class="metric-value" style="color:{'#10b981' if dem>=65 else '#f59e0b' if dem>=40 else '#ef4444'};">{dem}%</div></div>
+        </div>
+    </div>
+    """
+
+    # ====== نقاط القوة والانتباه ======
+    strengths_html = "".join(f"<li>✓ {s}</li>" for s in a['strengths'])
+    cautions_html = "".join(f"<li>⚠ {c}</li>" for c in a['cautions'])
+    points_section = f"""
+    <div class="section">
+        <h3>⚖️ نقاط القوة والانتباه</h3>
+        <div class="two-col">
+            <div class="col"><h4 style="color:#10b981;">✅ نقاط القوة</h4><ul class="point-list good">{strengths_html}</ul></div>
+            <div class="col"><h4 style="color:#f59e0b;">⚠️ نقاط الانتباه</h4><ul class="point-list warn">{cautions_html}</ul></div>
+        </div>
+    </div>
+    """
+
+    # ====== أفضل الأنشطة ======
+    best_html = ""
+    if a.get('best_activities'):
+        for i, act in enumerate(a['best_activities'], 1):
+            reasons = " • ".join(act['reasons'])
+            best_html += f"""<div class="activity-card good">
+                <div class="rank">{i}</div>
+                <div class="activity-info">
+                    <div class="activity-name">{act['icon']} {act['cat_name']}</div>
+                    <div class="activity-reason">💡 {reasons}</div>
+                    <div class="activity-meta">طلب: {act['demand']}% | منافسين: {act['existing']} | إشباع: {act['saturation']}%</div>
+                </div>
+                <div class="activity-score">{act['opportunity_score']}%</div>
+            </div>"""
+    best_section = f"""<div class="section page-break"><h3>✅ أفضل الأنشطة المقترحة</h3>{best_html}</div>""" if best_html else ""
+
+    # ====== أسوأ الأنشطة ======
+    worst_html = ""
+    if a.get('worst_activities'):
+        for act in a['worst_activities']:
+            reasons = " • ".join(act['reasons'])
+            worst_html += f"""<div class="activity-card bad">
+                <div class="rank" style="color:#ef4444;">✗</div>
+                <div class="activity-info">
+                    <div class="activity-name">{act['icon']} {act['cat_name']}</div>
+                    <div class="activity-reason">⚠️ {reasons}</div>
+                    <div class="activity-meta">منافسين: {act['existing']} | إشباع: {act['saturation']}%</div>
+                </div>
+                <div class="activity-score bad">{act['opportunity_score']}%</div>
+            </div>"""
+    worst_section = f"""<div class="section"><h3>❌ أنشطة يُنصح بتجنبها</h3>{worst_html}</div>""" if worst_html else ""
+
+    # ====== التحليل المالي ======
+    financial_section = ""
+    if a.get('financial'):
+        f = a['financial']
+        vc_map = {'good': '#10b981', 'ok': '#3b82f6', 'warn': '#f59e0b', 'danger': '#ef4444'}
+        vc = vc_map.get(f['verdict_status'], '#94a3b8')
+
+        extras = []
+        if f.get('breakeven_daily'):
+            extras.append(f"<div class='kpi-small'><div class='kpi-small-label'>نقطة التعادل</div><div class='kpi-small-value'>{f['breakeven_daily']} عميل/يوم</div></div>")
+        if f.get('payback_months'):
+            extras.append(f"<div class='kpi-small'><div class='kpi-small-label'>استرداد رأس المال</div><div class='kpi-small-value'>{f['payback_months']} شهر</div></div>")
+        if f.get('rent_assessment'):
+            extras.append(f"<div class='kpi-small'><div class='kpi-small-label'>تقييم الإيجار</div><div class='kpi-small-value'>{f['rent_assessment']}</div></div>")
+        extras_html = "<div class='kpis-row'>" + "".join(extras) + "</div>" if extras else ""
+
+        financial_section = f"""
+        <div class="section page-break">
+            <h3>💰 التحليل المالي والجدوى</h3>
+            <div class="verdict-box" style="border-color:{vc}; background:rgba(0,0,0,0.05);">
+                <h4 style="color:{vc};">{f['verdict']}</h4>
+                <p>{f['verdict_detail']}</p>
+            </div>
+            <div class="metrics-grid">
+                <div class="metric"><div class="metric-label">💰 رأس المال المطلوب</div><div class="metric-value">{f['total_capital']:,.0f}</div><div class="metric-sub">ر.س</div></div>
+                <div class="metric"><div class="metric-label">📈 الإيرادات الشهرية</div><div class="metric-value" style="color:#10b981;">{f['monthly_revenue']:,.0f}</div><div class="metric-sub">ر.س</div></div>
+                <div class="metric"><div class="metric-label">📉 المصاريف الشهرية</div><div class="metric-value" style="color:#ef4444;">{f['monthly_expenses']:,.0f}</div><div class="metric-sub">ر.س</div></div>
+                <div class="metric"><div class="metric-label">💵 صافي الربح</div><div class="metric-value" style="color:{'#10b981' if f['net_profit_monthly']>0 else '#ef4444'};">{f['net_profit_monthly']:,.0f}</div><div class="metric-sub">ر.س/شهر</div></div>
+            </div>
+            {extras_html}
+        </div>
+        """
+
+    # ====== الموقع: المواقف والوصول والذروة ======
+    site_section = ""
+    if a.get('site_details'):
+        sd = a['site_details']
+        ph_rows = ""
+        for key in ['morning', 'noon', 'evening']:
+            p = sd['peak_hours'][key]
+            ph_rows += f"<tr><td>{p['label']}</td><td><b>{p['level']}</b></td></tr>"
+        site_section = f"""
+        <div class="section">
+            <h3>🚗 المواقف والوصول والكثافة</h3>
+            <div class="three-col">
+                <div class="col"><h4>🅿️ مواقف السيارات</h4><div class="col-value">{sd['parking_status']}</div><p>{sd['parking_detail']}</p></div>
+                <div class="col"><h4>🚗 سهولة الوصول</h4><div class="col-value">{sd['access_status']}</div><p>{sd['access_detail']}</p></div>
+                <div class="col"><h4>⏰ كثافة الذروة</h4><table class="peak-table">{ph_rows}</table><p>🔥 الأشد: <b>{sd['busiest_period']}</b></p></div>
+            </div>
+        </div>
+        """
+
+    # ====== DNA الحي ======
+    dna_section = ""
+    if a.get('dna'):
+        d = a['dna']
+        colors = {'family': '#10b981', 'youth': '#a855f7', 'commercial': '#3b82f6', 'food': '#ef4444', 'service': '#f59e0b'}
+        labels = {'family': 'عائلي', 'youth': 'شبابي', 'commercial': 'تجاري', 'food': 'طعام', 'service': 'خدماتي'}
+        dna_bars = ""
+        for k in ['family', 'youth', 'commercial', 'food', 'service']:
+            val = d.get(k, 0)
+            dna_bars += f"""
+            <div class="dna-row">
+                <span class="dna-label">{labels[k]}</span>
+                <div class="dna-bar"><div class="dna-fill" style="width:{val}%; background:{colors[k]};"></div></div>
+                <span class="dna-val" style="color:{colors[k]};">{val}%</span>
+            </div>"""
+        dna_section = f"""
+        <div class="section">
+            <h3>🧬 DNA الحي</h3>
+            <div class="dna-main">الطابع الأقوى: <b>{d['main']}</b></div>
+            {dna_bars}
+        </div>
+        """
+
+    # ====== مقارنة المدينة ======
+    city_section = ""
+    if a.get('city_comparison'):
+        cc = a['city_comparison']
+        sign = "+" if cc['pct_diff'] >= 0 else ""
+        city_section = f"""
+        <div class="section">
+            <h3>🏙️ مقارنة مع متوسط المدن السعودية</h3>
+            <div class="city-compare">
+                <div><div class="cc-label">كثافة موقعك</div><div class="cc-value">{cc['density']}<small> محل/كم²</small></div></div>
+                <div><div class="cc-label">متوسط المدن</div><div class="cc-value" style="color:#94a3b8;">{cc['expected']}<small> محل/كم²</small></div></div>
+                <div><div class="cc-label">الفرق</div><div class="cc-value" style="color:{cc['color']};">{sign}{cc['pct_diff']:.0f}%</div><div style="color:{cc['color']}; font-size:11px;">{cc['status']}</div></div>
+            </div>
+        </div>
+        """
+
+    # ====== المنافسين ======
+    competitors_section = ""
+    target = a.get('target_cat')
+    if target and a.get('top_competitors'):
+        comp_rows = ""
+        for i, c in enumerate(a['top_competitors'][:5], 1):
+            comp_rows += f"<tr><td>{i}</td><td>{c['name']}</td><td>{c['dist']} كم</td></tr>"
+        competitors_section = f"""
+        <div class="section">
+            <h3>🏆 أعلى المنافسين ({CATEGORIES[target]['name']})</h3>
+            <table class="comp-table">
+                <thead><tr><th>#</th><th>المنافس</th><th>المسافة</th></tr></thead>
+                <tbody>{comp_rows}</tbody>
+            </table>
+        </div>
+        """
+
+    # ====== الأنشطة في المنطقة ======
+    activities_section = ""
+    if pbc:
+        rows = ""
+        for cat_key, places in sorted(pbc.items(), key=lambda x: -len(x[1])):
+            cat = CATEGORIES[cat_key]
+            rows += f"<tr><td>{cat['icon']} {cat['name']}</td><td>{len(places)} محل</td></tr>"
+        activities_section = f"""
+        <div class="section">
+            <h3>🏪 الأنشطة في المنطقة (إجمالي {a['total_places']} محل)</h3>
+            <table class="comp-table">
+                <thead><tr><th>الفئة</th><th>العدد</th></tr></thead>
+                <tbody>{rows}</tbody>
+            </table>
+        </div>
+        """
+
+    # ====== الخدمات المفقودة ======
+    missing_section = ""
+    if a.get('missing_services'):
+        items = "".join(f"<li>⚠️ {s}</li>" for s in a['missing_services'])
+        missing_section = f"""<div class="section"><h3>🔍 خدمات أساسية مفقودة</h3><ul class="point-list warn">{items}</ul></div>"""
+
+    # ====== ملاحظات الصور ======
+    img_section = ""
+    if a.get('image_results'):
+        img_blocks = ""
+        for idx, ir in enumerate(a['image_results'], 1):
+            sc = ir.get('overall_score', '-')
+            img_blocks += f"""
+            <div class="img-block">
+                <h4>📷 صورة {idx} — تقييم {sc}/10</h4>
+                <p><b>الوصف:</b> {ir.get('area_description', '-')}</p>
+                <p><b>الحركة:</b> {ir.get('traffic_level', '-')} | <b>المواقف:</b> {ir.get('parking_availability', '-')} | <b>الحي:</b> {ir.get('neighborhood_type', '-')}</p>
+                {f"<p style='color:#10b981;'>✓ {', '.join(ir.get('suitable_activities', []))}</p>" if ir.get('suitable_activities') else ""}
+                {f"<p style='color:#f59e0b;'>⚠️ {', '.join(ir.get('concerns', []))}</p>" if ir.get('concerns') else ""}
+            </div>
+            """
+        img_section = f"""<div class="section page-break"><h3>📸 تحليل صور الموقع</h3>{img_blocks}</div>"""
+
+    # ====== الـ CSS ======
+    css = """
+    <style>
+        @media print {
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .no-print { display: none !important; }
+            .page-break { page-break-before: always; }
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            direction: rtl; text-align: right;
+            font-family: 'Tahoma', 'Arial', sans-serif;
+            background: white; color: #1f2937;
+            padding: 30px; line-height: 1.6;
+            max-width: 1000px; margin: 0 auto;
+        }
+        .print-banner {
+            position: fixed; top: 0; left: 0; right: 0;
+            background: #ef4444; color: white;
+            padding: 12px 20px; text-align: center;
+            font-weight: bold; z-index: 999;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        .print-banner button {
+            background: white; color: #ef4444; border: none;
+            padding: 8px 24px; border-radius: 8px; margin-right: 12px;
+            cursor: pointer; font-weight: bold; font-size: 14px;
+        }
+        .report-header {
+            display: flex; align-items: center; justify-content: space-between;
+            border-bottom: 4px solid #ef4444; padding-bottom: 20px; margin-bottom: 30px;
+            margin-top: 60px;
+        }
+        .logo { font-size: 42px; font-weight: 900; color: #ef4444; letter-spacing: 2px; }
+        .header-info h1 { font-size: 24px; color: #1f2937; margin-bottom: 8px; }
+        .meta { display: flex; gap: 16px; color: #6b7280; font-size: 13px; flex-wrap: wrap; }
+        .section {
+            background: #f9fafb; border: 1px solid #e5e7eb;
+            border-radius: 12px; padding: 20px; margin-bottom: 20px;
+        }
+        .section h3 {
+            color: #1f2937; font-size: 18px; margin-bottom: 14px;
+            padding-right: 12px; border-right: 4px solid #ef4444;
+        }
+        .section.verdict {
+            border: 3px solid; border-radius: 16px; padding: 24px;
+            text-align: center;
+        }
+        .verdict-label { color: #6b7280; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+        .verdict h2 { font-size: 32px; margin: 8px 0 12px 0; }
+        .verdict-score { color: #4b5563; font-size: 14px; margin-bottom: 14px; }
+        .verdict-text { color: #374151; font-size: 14px; line-height: 1.8; }
+        .metrics-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+        }
+        .metric {
+            background: white; border: 1px solid #e5e7eb;
+            border-radius: 10px; padding: 16px; text-align: center;
+        }
+        .metric-icon { font-size: 24px; margin-bottom: 4px; }
+        .metric-label { color: #6b7280; font-size: 12px; margin-bottom: 6px; }
+        .metric-value { font-size: 28px; font-weight: 800; color: #1f2937; }
+        .metric-sub { color: #9ca3af; font-size: 11px; margin-top: 2px; }
+        .two-col, .three-col { display: grid; gap: 14px; }
+        .two-col { grid-template-columns: 1fr 1fr; }
+        .three-col { grid-template-columns: 1fr 1fr 1fr; }
+        .col { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
+        .col h4 { font-size: 14px; margin-bottom: 8px; }
+        .col-value { font-size: 18px; font-weight: 800; color: #1f2937; margin: 8px 0; }
+        .col p { color: #6b7280; font-size: 12px; line-height: 1.6; }
+        .point-list { list-style: none; padding: 0; }
+        .point-list li { padding: 6px 0; font-size: 13px; color: #374151; }
+        .point-list.good li { color: #047857; }
+        .point-list.warn li { color: #b45309; }
+        .activity-card {
+            display: flex; align-items: center; gap: 14px;
+            background: white; border: 1px solid #e5e7eb; border-radius: 10px;
+            padding: 14px; margin-bottom: 10px;
+        }
+        .activity-card.good { border-right: 4px solid #10b981; }
+        .activity-card.bad { border-right: 4px solid #ef4444; background: #fef2f2; }
+        .rank { font-size: 24px; font-weight: 900; color: #f59e0b; min-width: 36px; }
+        .activity-info { flex: 1; }
+        .activity-name { font-size: 15px; font-weight: 700; color: #1f2937; margin-bottom: 4px; }
+        .activity-reason { color: #6b7280; font-size: 12px; margin-bottom: 4px; }
+        .activity-meta { color: #9ca3af; font-size: 11px; }
+        .activity-score {
+            background: #d1fae5; color: #047857;
+            padding: 8px 14px; border-radius: 999px;
+            font-weight: 800; font-size: 16px; min-width: 60px; text-align: center;
+        }
+        .activity-score.bad { background: #fee2e2; color: #b91c1c; }
+        .verdict-box {
+            border: 2px solid; border-radius: 10px;
+            padding: 14px; margin-bottom: 14px;
+        }
+        .verdict-box h4 { font-size: 18px; margin-bottom: 6px; }
+        .verdict-box p { color: #4b5563; font-size: 13px; }
+        .kpis-row {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px; margin-top: 12px;
+        }
+        .kpi-small {
+            background: white; border: 1px solid #e5e7eb;
+            border-radius: 8px; padding: 12px; text-align: center;
+        }
+        .kpi-small-label { color: #6b7280; font-size: 12px; margin-bottom: 4px; }
+        .kpi-small-value { font-size: 16px; font-weight: 700; color: #1f2937; }
+        .peak-table, .comp-table {
+            width: 100%; border-collapse: collapse; margin-top: 8px;
+        }
+        .peak-table td, .comp-table td, .comp-table th {
+            padding: 8px; border-bottom: 1px solid #e5e7eb;
+            text-align: right; font-size: 13px;
+        }
+        .comp-table th { background: #f3f4f6; color: #374151; font-weight: 700; }
+        .dna-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+        .dna-label { min-width: 70px; color: #374151; font-size: 13px; font-weight: 600; }
+        .dna-bar { flex: 1; background: #e5e7eb; border-radius: 6px; height: 10px; overflow: hidden; }
+        .dna-fill { height: 100%; border-radius: 6px; }
+        .dna-val { min-width: 40px; text-align: left; font-weight: 700; font-size: 13px; }
+        .dna-main { color: #4b5563; margin-bottom: 12px; font-size: 14px; }
+        .city-compare {
+            display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; text-align: center;
+        }
+        .cc-label { color: #6b7280; font-size: 12px; margin-bottom: 6px; }
+        .cc-value { font-size: 26px; font-weight: 800; color: #1f2937; }
+        .cc-value small { font-size: 11px; color: #9ca3af; }
+        .img-block {
+            background: white; border: 1px solid #e5e7eb;
+            border-radius: 10px; padding: 14px; margin-bottom: 10px;
+        }
+        .img-block h4 { font-size: 15px; margin-bottom: 8px; color: #1f2937; }
+        .img-block p { color: #4b5563; font-size: 13px; margin-bottom: 4px; }
+        .footer {
+            margin-top: 40px; padding-top: 20px;
+            border-top: 2px solid #e5e7eb;
+            text-align: center; color: #9ca3af; font-size: 12px;
+        }
+    </style>
+    """
+
+    # ====== التذييل ======
+    footer = """
+    <div class="footer">
+        <p>📊 <b>GBI - الاستثمار الذكي</b> | تقرير تحليل آلي يعتمد على بيانات Mapbox و OpenStreetMap</p>
+        <p>⚠️ هذا التقرير يساعد في اتخاذ القرار لكن لا يغني عن الزيارة الميدانية ودراسة الجدوى التفصيلية</p>
+    </div>
+    """
+
+    # ====== شريط الطباعة (يختفي عند الطباعة) ======
+    print_banner = """
+    <div class="print-banner no-print">
+        💡 لحفظ التقرير كـ PDF: اضغط الزر ثم اختر "Save as PDF" أو "حفظ كـ PDF"
+        <button onclick="window.print()">🖨️ اطبع / احفظ PDF</button>
+    </div>
+    """
+
+    # ====== التجميع النهائي ======
+    html = f"""<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <title>تقرير GBI - {now}</title>
+    {css}
+</head>
+<body>
+    {print_banner}
+    {header}
+    {decision_section}
+    {metrics_section}
+    {points_section}
+    {best_section}
+    {worst_section}
+    {financial_section}
+    {site_section}
+    {dna_section}
+    {city_section}
+    {competitors_section}
+    {activities_section}
+    {missing_section}
+    {img_section}
+    {footer}
+    <script>
+        // فتح تلقائي لمربع الطباعة بعد ثانية (اختياري)
+        // setTimeout(() => window.print(), 800);
+    </script>
+</body>
+</html>
+"""
+    return html
+
+
+# ============================================================
 # Top Bar
 # ============================================================
 badges = []
@@ -1218,6 +1656,24 @@ if st.session_state.analysis:
         decision_card += f'<span class="verdict-tag" style="border-right: 3px solid #f59e0b;">⚠ {c}</span>'
     decision_card += "</div></div>"
     st.markdown(decision_card, unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════
+    # 📄 زر تصدير التقرير PDF
+    # ════════════════════════════════════════════════════
+    from datetime import datetime
+    report_filename = f"GBI_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.html"
+    report_html = build_report_html(a, pbc, lat, lng, radius)
+    ec1, ec2, ec3 = st.columns([1, 2, 1])
+    with ec2:
+        st.download_button(
+            label="📄 تصدير التقرير الكامل (PDF)",
+            data=report_html.encode('utf-8'),
+            file_name=report_filename,
+            mime="text/html",
+            use_container_width=True,
+            help="حمّل التقرير ثم افتحه واضغط 'اطبع / احفظ PDF' لحفظه كملف PDF",
+        )
+    st.caption("💡 افتح الملف المُحمّل، ثم اضغط على زر 'اطبع / احفظ PDF' بالأعلى لحفظه كملف PDF عبر متصفحك.")
 
     # ════════════════════════════════════════════════════
     # 2️⃣ المؤشرات الثلاث الرئيسية (Opportunity/Saturation/Demand)
@@ -1594,7 +2050,7 @@ if st.session_state.analysis:
         with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
             st.write(msg["content"])
     user_msg = st.chat_input("اسأل عن الموقع، الفرص، المنافسة...")
-    if user_msg:
+if user_msg:
         st.session_state.chat.append({"role": "user", "content": user_msg})
         with st.spinner("جارٍ التفكير..."):
             response = ai_chat(user_msg, a, pbc, lat, lng)
