@@ -58,28 +58,88 @@ st.set_page_config(
 )
 
 # ============================================================
-# الفئات
+# الفئات (موسّعة - 30+ فئة من Mapbox canonical IDs)
 # ============================================================
 CATEGORIES = {
-    "restaurant": {"name": "مطاعم", "icon": "🍽️", "color": "#ef4444"},
-    "cafe": {"name": "مقاهي", "icon": "☕", "color": "#f59e0b"},
-    "fast_food": {"name": "وجبات سريعة", "icon": "🍔", "color": "#dc2626"},
-    "shopping": {"name": "تسوق", "icon": "🛍️", "color": "#a855f7"},
-    "fuel": {"name": "محطات وقود", "icon": "⛽", "color": "#64748b"},
-    "pharmacy": {"name": "صيدليات", "icon": "💊", "color": "#10b981"},
-    "grocery": {"name": "بقالات", "icon": "🛒", "color": "#3b82f6"},
-    "services": {"name": "خدمات", "icon": "🔧", "color": "#94a3b8"},
+    # طعام ومشروبات
+    "restaurant": {"name": "مطاعم", "icon": "🍽️", "color": "#ef4444", "group": "طعام"},
+    "cafe": {"name": "مقاهي", "icon": "☕", "color": "#f59e0b", "group": "طعام"},
+    "fast_food": {"name": "وجبات سريعة", "icon": "🍔", "color": "#dc2626", "group": "طعام"},
+    # تسوق
+    "shopping": {"name": "تسوق", "icon": "🛍️", "color": "#a855f7", "group": "تسوق"},
+    "clothing_store": {"name": "ملابس", "icon": "👕", "color": "#c084fc", "group": "تسوق"},
+    "electronics_store": {"name": "إلكترونيات", "icon": "📱", "color": "#8b5cf6", "group": "تسوق"},
+    "home_garden": {"name": "منازل وحدائق", "icon": "🏡", "color": "#7c3aed", "group": "تسوق"},
+    "sporting_goods": {"name": "منتجات رياضية", "icon": "⚽", "color": "#6366f1", "group": "تسوق"},
+    # خدمات أساسية
+    "fuel": {"name": "محطات وقود", "icon": "⛽", "color": "#64748b", "group": "خدمات"},
+    "pharmacy": {"name": "صيدليات", "icon": "💊", "color": "#10b981", "group": "خدمات"},
+    "grocery": {"name": "بقالات", "icon": "🛒", "color": "#3b82f6", "group": "خدمات"},
+    "services": {"name": "خدمات عامة", "icon": "🔧", "color": "#94a3b8", "group": "خدمات"},
+    # سيارات
+    "auto_repair": {"name": "صيانة سيارات", "icon": "🔧", "color": "#475569", "group": "سيارات"},
+    "car_wash": {"name": "مغاسل سيارات", "icon": "🚿", "color": "#0ea5e9", "group": "سيارات"},
+    "car_dealer": {"name": "تجار سيارات", "icon": "🚗", "color": "#0284c7", "group": "سيارات"},
+    "car_rental": {"name": "تأجير سيارات", "icon": "🚙", "color": "#0369a1", "group": "سيارات"},
+    "ev_charging_station": {"name": "شحن كهربائي", "icon": "🔌", "color": "#06b6d4", "group": "سيارات"},
+    "parking": {"name": "مواقف", "icon": "🅿️", "color": "#475569", "group": "سيارات"},
+    # صحة
+    "hospital": {"name": "مستشفيات", "icon": "🏥", "color": "#dc2626", "group": "صحة"},
+    "clinic": {"name": "عيادات", "icon": "⚕️", "color": "#ef4444", "group": "صحة"},
+    # تجميل
+    "beauty_salon": {"name": "صالونات تجميل", "icon": "💅", "color": "#ec4899", "group": "تجميل"},
+    # ترفيه وثقافة
+    "park": {"name": "حدائق ومتنزهات", "icon": "🌳", "color": "#22c55e", "group": "ترفيه"},
+    "fitness_center": {"name": "نوادي رياضية", "icon": "💪", "color": "#16a34a", "group": "ترفيه"},
+    "cinema": {"name": "سينما وأفلام", "icon": "🎬", "color": "#7e22ce", "group": "ترفيه"},
+    "museum": {"name": "متاحف", "icon": "🏛️", "color": "#9333ea", "group": "ترفيه"},
+    "tourist_attraction": {"name": "معالم سياحية", "icon": "🗺️", "color": "#a855f7", "group": "ترفيه"},
+    "nightclub": {"name": "ترفيه ليلي", "icon": "🎵", "color": "#be185d", "group": "ترفيه"},
+    "library": {"name": "مكتبات", "icon": "📚", "color": "#a16207", "group": "ترفيه"},
+    # مالية
+    "atm": {"name": "صرّاف آلي", "icon": "🏧", "color": "#059669", "group": "مالية"},
+    "bank": {"name": "بنوك", "icon": "🏦", "color": "#047857", "group": "مالية"},
+    # سفر
+    "hotel": {"name": "فنادق", "icon": "🏨", "color": "#0891b2", "group": "سفر"},
+    # تعليم وديني
+    "school": {"name": "مدارس", "icon": "🏫", "color": "#ca8a04", "group": "تعليم"},
+    "mosque": {"name": "مساجد", "icon": "🕌", "color": "#65a30d", "group": "ديني"},
 }
 
+# الأنشطة المعروضة في القائمة المنسدلة (أسماء عربية واضحة → فئة Mapbox)
 ACTIVITY_TYPES = {
+    # طعام
     "مطعم": "restaurant",
-    "مقهى": "cafe",
+    "مقهى / كافيه": "cafe",
     "وجبات سريعة": "fast_food",
-    "محل تسوق": "shopping",
+    # تسوق
+    "محل تسوق عام": "shopping",
+    "محل ملابس": "clothing_store",
+    "محل إلكترونيات": "electronics_store",
+    "محل منزلي / أثاث": "home_garden",
+    "محل رياضي": "sporting_goods",
+    # خدمات
     "صيدلية": "pharmacy",
     "بقالة / سوبر ماركت": "grocery",
     "محطة وقود": "fuel",
-    "خدمات": "services",
+    "خدمات عامة": "services",
+    # سيارات
+    "صيانة سيارات": "auto_repair",
+    "مغسلة سيارات": "car_wash",
+    "معرض سيارات": "car_dealer",
+    "تأجير سيارات": "car_rental",
+    "محطة شحن كهربائي": "ev_charging_station",
+    # صحة وتجميل
+    "مستشفى / مجمع طبي": "hospital",
+    "عيادة": "clinic",
+    "صالون تجميل / حلاقة": "beauty_salon",
+    # ترفيه
+    "نادي رياضي / جيم": "fitness_center",
+    "سينما": "cinema",
+    # مالية
+    "بنك / صرّاف": "bank",
+    # سفر
+    "فندق / شقق فندقية": "hotel",
 }
 
 # متوسطات تقديرية للسعودية (لمقارنة المدينة)
@@ -704,39 +764,76 @@ def analyze(pbc, radius_km, target_cat=None):
     if target_cat:
         score = int(opportunity * 0.40 + traffic_score * 0.20 + acc_score * 0.15 + pop_score * 0.15 + comp_score * 0.10)
     else:
+        # بدون نشاط: نقّيم جودة الموقع ككل (إمكاناته، حركته، طلبه)
         score = int(demand * 0.35 + traffic_score * 0.25 + acc_score * 0.20 + pop_score * 0.20)
 
-    # ===== القرار النهائي (جديد) =====
-    if score >= 75:
-        decision = "افتح بثقة"
-        decision_emoji = "🟢"
-        decision_color = "#10b981"
-        decision_bg = "rgba(16,185,129,0.12)"
-        decision_summary = "هذا الموقع يحقق معظم شروط النجاح. ابدأ مع التركيز على التميز."
-    elif score >= 60:
-        decision = "افتح بشروط"
-        decision_emoji = "🟢"
-        decision_color = "#10b981"
-        decision_bg = "rgba(16,185,129,0.10)"
-        decision_summary = "موقع جيد لكن يحتاج تخطيط دقيق ودراسة ميدانية قبل البدء."
-    elif score >= 45:
-        decision = "فكّر مرتين"
-        decision_emoji = "🟡"
-        decision_color = "#f59e0b"
-        decision_bg = "rgba(245,158,11,0.10)"
-        decision_summary = "الموقع متوسط - تأكد من ميزتك التنافسية قبل الاستثمار."
-    elif score >= 30:
-        decision = "غير منصوح به"
-        decision_emoji = "🟠"
-        decision_color = "#f97316"
-        decision_bg = "rgba(249,115,22,0.10)"
-        decision_summary = "مخاطر عالية. ابحث عن موقع أفضل قبل الالتزام."
+    # ===== القرار النهائي =====
+    # مهم: لو ما اختار نشاطاً، ما نقول "افتح بثقة" لأنه ما حدد افتح ايش!
+    # بدلاً من ذلك نعرض "فرصة ذهبية" كتقييم لجودة الموقع نفسه
+    if target_cat:
+        # المستخدم اختار نشاط - نقرر بناءً على فرصة هذا النشاط تحديداً
+        if score >= 75:
+            decision = "افتح بثقة"
+            decision_emoji = "🟢"
+            decision_color = "#10b981"
+            decision_bg = "rgba(16,185,129,0.12)"
+            decision_summary = "هذا الموقع يحقق معظم شروط النجاح لنشاطك. ابدأ مع التركيز على التميز."
+        elif score >= 60:
+            decision = "افتح بشروط"
+            decision_emoji = "🟢"
+            decision_color = "#10b981"
+            decision_bg = "rgba(16,185,129,0.10)"
+            decision_summary = "موقع جيد لنشاطك لكن يحتاج تخطيط دقيق ودراسة ميدانية قبل البدء."
+        elif score >= 45:
+            decision = "فكّر مرتين"
+            decision_emoji = "🟡"
+            decision_color = "#f59e0b"
+            decision_bg = "rgba(245,158,11,0.10)"
+            decision_summary = "الموقع متوسط لنشاطك - تأكد من ميزتك التنافسية قبل الاستثمار."
+        elif score >= 30:
+            decision = "غير منصوح به"
+            decision_emoji = "🟠"
+            decision_color = "#f97316"
+            decision_bg = "rgba(249,115,22,0.10)"
+            decision_summary = "مخاطر عالية لنشاطك هنا. ابحث عن موقع أفضل قبل الالتزام."
+        else:
+            decision = "تجنّبه"
+            decision_emoji = "🔴"
+            decision_color = "#ef4444"
+            decision_bg = "rgba(239,68,68,0.10)"
+            decision_summary = "البيانات لا تدعم نجاح نشاطك في هذا الموقع."
     else:
-        decision = "تجنّبه"
-        decision_emoji = "🔴"
-        decision_color = "#ef4444"
-        decision_bg = "rgba(239,68,68,0.10)"
-        decision_summary = "البيانات لا تدعم نجاح المشروع هنا."
+        # المستخدم لم يختر نشاط - نقيّم جودة الموقع كفرصة استثمارية
+        if score >= 75:
+            decision = "فرصة ذهبية"
+            decision_emoji = "🌟"
+            decision_color = "#10b981"
+            decision_bg = "rgba(16,185,129,0.12)"
+            decision_summary = "موقع استثماري ممتاز - الحركة عالية، الطلب مرتفع، والوصول سهل. النشاط المناسب سيُحدّد أدناه."
+        elif score >= 60:
+            decision = "موقع واعد"
+            decision_emoji = "💎"
+            decision_color = "#3b82f6"
+            decision_bg = "rgba(59,130,246,0.10)"
+            decision_summary = "إمكانات استثمارية جيدة - الموقع يستحق الدراسة. اختر نشاطاً من المقترحات أدناه."
+        elif score >= 45:
+            decision = "موقع متوسط"
+            decision_emoji = "🟡"
+            decision_color = "#f59e0b"
+            decision_bg = "rgba(245,158,11,0.10)"
+            decision_summary = "الموقع له إمكانات محدودة. لو قررت الاستثمار، اختر نشاطاً متخصصاً يميّزك."
+        elif score >= 30:
+            decision = "موقع ضعيف"
+            decision_emoji = "🟠"
+            decision_color = "#f97316"
+            decision_bg = "rgba(249,115,22,0.10)"
+            decision_summary = "البنية التجارية محدودة - يحتاج جهد تسويقي مرتفع لجذب العملاء."
+        else:
+            decision = "موقع غير مناسب"
+            decision_emoji = "🔴"
+            decision_color = "#ef4444"
+            decision_bg = "rgba(239,68,68,0.10)"
+            decision_summary = "النشاط التجاري في المنطقة ضعيف جداً - يُنصح بالبحث عن موقع آخر."
 
     # الخدمات المفقودة
     missing = []
@@ -790,35 +887,36 @@ def analyze(pbc, radius_km, target_cat=None):
 # ============================================================
 def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score):
     """صنّف كل النشاطات من الأفضل للأسوأ مع شرح"""
+    # خريطة الطلب والسعة لكل نشاط حسب طبيعة الحي
     candidates = {
-        'cafe': {
-            'demand_map': {'عائلي': 70, 'شبابي': 95, 'تجاري': 90, 'طعام': 60, 'خدماتي': 60, 'غير محدد': 70},
-            'cap': 8,
-        },
-        'restaurant': {
-            'demand_map': {'عائلي': 95, 'شبابي': 80, 'تجاري': 80, 'طعام': 55, 'خدماتي': 65, 'غير محدد': 80},
-            'cap': 10,
-        },
-        'fast_food': {
-            'demand_map': {'عائلي': 75, 'شبابي': 95, 'تجاري': 85, 'طعام': 60, 'خدماتي': 65, 'غير محدد': 75},
-            'cap': 8,
-        },
-        'pharmacy': {
-            'demand_map': {'عائلي': 95, 'شبابي': 70, 'تجاري': 70, 'طعام': 50, 'خدماتي': 90, 'غير محدد': 80},
-            'cap': 3,
-        },
-        'grocery': {
-            'demand_map': {'عائلي': 95, 'شبابي': 75, 'تجاري': 65, 'طعام': 55, 'خدماتي': 80, 'غير محدد': 80},
-            'cap': 5,
-        },
-        'shopping': {
-            'demand_map': {'عائلي': 75, 'شبابي': 90, 'تجاري': 85, 'طعام': 50, 'خدماتي': 65, 'غير محدد': 75},
-            'cap': 8,
-        },
-        'services': {
-            'demand_map': {'عائلي': 70, 'شبابي': 60, 'تجاري': 80, 'طعام': 50, 'خدماتي': 90, 'غير محدد': 70},
-            'cap': 6,
-        },
+        # طعام (طلب عالي عادة)
+        'cafe': {'demand_map': {'عائلي': 70, 'شبابي': 95, 'تجاري': 90, 'طعام': 60, 'خدماتي': 60, 'غير محدد': 70}, 'cap': 8},
+        'restaurant': {'demand_map': {'عائلي': 95, 'شبابي': 80, 'تجاري': 80, 'طعام': 55, 'خدماتي': 65, 'غير محدد': 80}, 'cap': 10},
+        'fast_food': {'demand_map': {'عائلي': 75, 'شبابي': 95, 'تجاري': 85, 'طعام': 60, 'خدماتي': 65, 'غير محدد': 75}, 'cap': 8},
+        # خدمات أساسية (طلب يومي)
+        'pharmacy': {'demand_map': {'عائلي': 95, 'شبابي': 70, 'تجاري': 70, 'طعام': 50, 'خدماتي': 90, 'غير محدد': 80}, 'cap': 3},
+        'grocery': {'demand_map': {'عائلي': 95, 'شبابي': 75, 'تجاري': 65, 'طعام': 55, 'خدماتي': 80, 'غير محدد': 80}, 'cap': 5},
+        # تسوق
+        'shopping': {'demand_map': {'عائلي': 75, 'شبابي': 90, 'تجاري': 85, 'طعام': 50, 'خدماتي': 65, 'غير محدد': 75}, 'cap': 8},
+        'clothing_store': {'demand_map': {'عائلي': 80, 'شبابي': 90, 'تجاري': 80, 'طعام': 40, 'خدماتي': 60, 'غير محدد': 75}, 'cap': 6},
+        'electronics_store': {'demand_map': {'عائلي': 70, 'شبابي': 90, 'تجاري': 85, 'طعام': 40, 'خدماتي': 65, 'غير محدد': 70}, 'cap': 4},
+        'home_garden': {'demand_map': {'عائلي': 85, 'شبابي': 50, 'تجاري': 70, 'طعام': 40, 'خدماتي': 65, 'غير محدد': 65}, 'cap': 4},
+        'sporting_goods': {'demand_map': {'عائلي': 65, 'شبابي': 85, 'تجاري': 60, 'طعام': 35, 'خدماتي': 55, 'غير محدد': 60}, 'cap': 3},
+        # سيارات
+        'auto_repair': {'demand_map': {'عائلي': 75, 'شبابي': 65, 'تجاري': 75, 'طعام': 40, 'خدماتي': 90, 'غير محدد': 70}, 'cap': 5},
+        'car_wash': {'demand_map': {'عائلي': 75, 'شبابي': 80, 'تجاري': 80, 'طعام': 45, 'خدماتي': 85, 'غير محدد': 75}, 'cap': 4},
+        'car_dealer': {'demand_map': {'عائلي': 60, 'شبابي': 70, 'تجاري': 75, 'طعام': 35, 'خدماتي': 70, 'غير محدد': 60}, 'cap': 3},
+        'car_rental': {'demand_map': {'عائلي': 55, 'شبابي': 75, 'تجاري': 85, 'طعام': 50, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
+        'ev_charging_station': {'demand_map': {'عائلي': 60, 'شبابي': 75, 'تجاري': 80, 'طعام': 50, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
+        # صحة وتجميل
+        'clinic': {'demand_map': {'عائلي': 90, 'شبابي': 70, 'تجاري': 75, 'طعام': 50, 'خدماتي': 85, 'غير محدد': 75}, 'cap': 5},
+        'beauty_salon': {'demand_map': {'عائلي': 90, 'شبابي': 95, 'تجاري': 70, 'طعام': 45, 'خدماتي': 75, 'غير محدد': 80}, 'cap': 6},
+        # ترفيه
+        'fitness_center': {'demand_map': {'عائلي': 75, 'شبابي': 95, 'تجاري': 75, 'طعام': 50, 'خدماتي': 65, 'غير محدد': 75}, 'cap': 4},
+        # مالية/سفر
+        'hotel': {'demand_map': {'عائلي': 40, 'شبابي': 65, 'تجاري': 85, 'طعام': 55, 'خدماتي': 70, 'غير محدد': 55}, 'cap': 4},
+        # خدمات عامة
+        'services': {'demand_map': {'عائلي': 70, 'شبابي': 60, 'تجاري': 80, 'طعام': 50, 'خدماتي': 90, 'غير محدد': 70}, 'cap': 6},
     }
 
     main_culture = dna['main']
@@ -833,7 +931,7 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score):
         # تعديل بناءً على عوامل أخرى
         if traffic_score >= 70 and cat in ('cafe', 'restaurant', 'fast_food'):
             opportunity = min(100, opportunity + 8)
-        if pop_score >= 65 and cat in ('grocery', 'pharmacy'):
+        if pop_score >= 65 and cat in ('grocery', 'pharmacy', 'clinic'):
             opportunity = min(100, opportunity + 10)
         if acc_score < 50:
             opportunity = max(0, opportunity - 10)
@@ -848,13 +946,13 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score):
             reasons.append(f"السوق مشبع ({existing} منافس)")
 
         if main_culture in info['demand_map'] and info['demand_map'][main_culture] >= 80:
-            reasons.append(f"الحي {main_culture} يدعم هذا النشاط")
+            reasons.append(f"الحي {main_culture} يدعم هذا النشاط بقوة")
         elif info['demand_map'].get(main_culture, 65) < 60:
             reasons.append(f"الحي {main_culture} لا يدعم بقوة")
 
         if traffic_score >= 70 and cat in ('cafe', 'restaurant', 'fast_food'):
             reasons.append("حركة مرور عالية تجذب العملاء")
-        if pop_score >= 65 and cat in ('grocery', 'pharmacy'):
+        if pop_score >= 65 and cat in ('grocery', 'pharmacy', 'clinic'):
             reasons.append("كثافة سكانية تخلق طلب يومي")
 
         results.append({
@@ -942,6 +1040,85 @@ def integrate_image_analysis(image_results, base_analysis):
 
 
 # ============================================================
+# تحليل نشاط مخصص (يكتبه المستخدم بنفسه)
+# ============================================================
+def analyze_custom_activity(activity_text, analysis, pbc, lat, lng):
+    """يحلل نشاطاً مخصصاً يكتبه المستخدم باللغة الطبيعية"""
+    if not AI_AVAILABLE:
+        # وضع بدون AI - تحليل بسيط
+        total = analysis['total_places']
+        traffic = analysis['traffic_score']
+        return {
+            'activity': activity_text,
+            'verdict': 'يحتاج دراسة' if total > 10 else 'بيانات محدودة',
+            'verdict_color': '#f59e0b',
+            'score': 50,
+            'reasoning': f"تحليل تلقائي: المنطقة فيها {total} محل تجاري بمستوى حركة {analysis['traffic_level']}. "
+                         f"للحصول على تحليل دقيق للنشاط '{activity_text}'، فعّل GEMINI_API_KEY.",
+            'similar_competitors': 0,
+            'opportunities': ["ضع خطة تسويق قوية", "ركّز على التميّز عن المنافسين"],
+            'risks': ["تأكد من دراسة السوق ميدانياً"],
+        }
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        summary = ", ".join([f"{CATEGORIES[k]['name']}({len(v)})" for k, v in pbc.items()])
+        prompt = f"""أنت خبير تحليل مواقع تجارية في السعودية. حلّل جدوى فتح نشاط محدد:
+
+النشاط المقترح: "{activity_text}"
+
+بيانات الموقع:
+- إجمالي المحلات في النطاق: {analysis['total_places']}
+- الأنشطة الموجودة: {summary}
+- ثقافة الحي: {analysis['dna']['main']} (عائلي:{analysis['dna']['family']}%, شبابي:{analysis['dna']['youth']}%, تجاري:{analysis['dna']['commercial']}%)
+- الحركة: {analysis['traffic_level']} ({analysis['traffic_score']}/100)
+- الكثافة السكانية: {analysis['pop_density']} ({analysis['pop_score']}/100)
+- سهولة الوصول: {analysis['accessibility']} ({analysis['accessibility_score']}/100)
+- نوع المنطقة: {analysis['area_type']}
+
+أعد JSON فقط (بدون أي نص خارج JSON):
+{{
+  "verdict": "نص قصير مثل: فرصة ممتازة، مناسب، يحتاج دراسة، غير مناسب، تجنّبه",
+  "verdict_color": "كود لون hex بناءً على التقييم: #10b981 للممتاز، #3b82f6 للجيد، #f59e0b للمتوسط، #f97316 للضعيف، #ef4444 للسيء",
+  "score": "رقم من 0-100 يعبّر عن مدى ملاءمة هذا النشاط لهذا الموقع تحديداً",
+  "reasoning": "شرح من 3 جمل: لماذا هذا التقييم؟ ما الذي يدعم النشاط؟ ما الذي يعارضه؟",
+  "similar_competitors": "رقم تقديري للمنافسين الحاليين من نفس النشاط أو مشابهين",
+  "opportunities": ["فرصة قوية 1", "فرصة قوية 2", "فرصة قوية 3"],
+  "risks": ["تحذير 1", "تحذير 2", "تحذير 3"]
+}}"""
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if '```json' in text:
+            text = text.split('```json')[1].split('```')[0]
+        elif '```' in text:
+            text = text.split('```')[1].split('```')[0]
+        result = json.loads(text.strip())
+        result['activity'] = activity_text
+        # تأكد من القيم الافتراضية
+        if not isinstance(result.get('score'), (int, float)):
+            try:
+                result['score'] = int(str(result.get('score', 50)).strip())
+            except Exception:
+                result['score'] = 50
+        if not isinstance(result.get('similar_competitors'), (int, float)):
+            try:
+                result['similar_competitors'] = int(str(result.get('similar_competitors', 0)).strip())
+            except Exception:
+                result['similar_competitors'] = 0
+        return result
+    except Exception:
+        return {
+            'activity': activity_text,
+            'verdict': 'تعذّر التحليل',
+            'verdict_color': '#94a3b8',
+            'score': 50,
+            'reasoning': "حدث خطأ في تحليل AI. حاول مرة أخرى أو اختر نشاطاً من القائمة المنسدلة.",
+            'similar_competitors': 0,
+            'opportunities': [],
+            'risks': [],
+        }
+
+
+# ============================================================
 # AI
 # ============================================================
 def ai_enhance(analysis, pbc, lat, lng):
@@ -1021,6 +1198,42 @@ def build_report_html(a, pbc, lat, lng, radius):
         <p class="verdict-text">{a.get('ai_recommendation') if a.get('ai_enhanced') else a['decision_summary']}</p>
     </div>
     """
+
+    # ====== أفضل نشاط مقترح (لو ما اختار) ======
+    best_act_highlight = ""
+    if not a.get('target_cat') and a.get('best_activities'):
+        top_act = a['best_activities'][0]
+        reasons_text = " • ".join(top_act['reasons'])
+        best_act_highlight = f"""
+        <div class="section" style="border-color:#a855f7; background:rgba(168,85,247,0.05);">
+            <div style="color:#7c3aed; font-size:13px; font-weight:600; margin-bottom:6px;">🎯 أفضل نشاط مقترح لهذا الموقع</div>
+            <h2 style="color:#1f2937;">{top_act['icon']} {top_act['cat_name']} <span style="background:#d1fae5; color:#047857; padding:6px 14px; border-radius:999px; font-size:18px;">{top_act['opportunity_score']}%</span></h2>
+            <p style="margin-top:10px; color:#4b5563;"><b>لماذا هذا النشاط؟</b> {reasons_text}</p>
+            <div style="margin-top:8px; color:#6b7280; font-size:13px;">
+                📊 الطلب: <b>{top_act['demand']}%</b> &nbsp;|&nbsp;
+                🏪 منافسين: <b>{top_act['existing']}</b> &nbsp;|&nbsp;
+                📈 تشبع: <b>{top_act['saturation']}%</b>
+            </div>
+        </div>
+        """
+
+    # ====== تحليل النشاط المخصص ======
+    custom_act_section = ""
+    if a.get('custom_activity_analysis'):
+        ca = a['custom_activity_analysis']
+        vc = ca.get('verdict_color', '#94a3b8')
+        opps = "".join(f"<li>✨ {o}</li>" for o in ca.get('opportunities', []))
+        risks = "".join(f"<li>⚠️ {r}</li>" for r in ca.get('risks', []))
+        custom_act_section = f"""
+        <div class="section" style="border-color:#3b82f6; background:rgba(59,130,246,0.05);">
+            <div style="color:#1d4ed8; font-size:13px; font-weight:600; margin-bottom:6px;">✍️ تحليل AI للنشاط المخصص</div>
+            <h2 style="color:#1f2937;">"{ca['activity']}" <span style="background:rgba(255,255,255,0.5); color:{vc}; padding:6px 14px; border-radius:999px; font-size:16px;">{ca['verdict']} ({ca.get('score', 50)}/100)</span></h2>
+            <p style="margin-top:10px; color:#4b5563; line-height:1.7;"><b>التحليل:</b> {ca['reasoning']}</p>
+            <p style="color:#6b7280; font-size:13px; margin-top:6px;">🏪 منافسون مشابهون: <b>{ca.get('similar_competitors', 0)}</b></p>
+            {f'<div style="margin-top:10px;"><h4 style="color:#047857;">الفرص:</h4><ul class="point-list good">{opps}</ul></div>' if opps else ''}
+            {f'<div style="margin-top:10px;"><h4 style="color:#b45309;">التحذيرات:</h4><ul class="point-list warn">{risks}</ul></div>' if risks else ''}
+        </div>
+        """
 
     # ====== المؤشرات الثلاث ======
     opp = a['opportunity_score']
@@ -1401,6 +1614,8 @@ def build_report_html(a, pbc, lat, lng, radius):
     {print_banner}
     {header}
     {decision_section}
+    {best_act_highlight}
+    {custom_act_section}
     {metrics_section}
     {points_section}
     {best_section}
@@ -1480,13 +1695,30 @@ with st.expander("⚙️ خيارات متقدمة - النشاط المستهد
     tab_act, tab_money, tab_img = st.tabs(["🎯 النشاط المستهدف", "💰 البيانات المالية", "📸 صور الموقع"])
 
     with tab_act:
-        target_options = [("", "🤖 اقترح الأنسب تلقائياً")]
+        target_options = [("", "🤖 اقترح الأنسب تلقائياً (بناء على تحليل السوق)")]
         for name, cat in ACTIVITY_TYPES.items():
             target_options.append((cat, f"{CATEGORIES[cat]['icon']} {name}"))
+        target_options.append(("__custom__", "✍️ نشاط مخصص (اكتبه بنفسي)"))
+
         target_idx = st.selectbox("target", options=range(len(target_options)),
                                   format_func=lambda i: target_options[i][1], label_visibility="collapsed", key="target_select")
-        st.session_state.target_activity = target_options[target_idx][0] or None
-        st.caption("اختر نوع نشاطك ليحلل النظام منافسيك بدقة، أو دعه يقترح الأنسب.")
+        selected_target = target_options[target_idx][0]
+
+        # خانة النشاط المخصص
+        custom_activity = ""
+        if selected_target == "__custom__":
+            custom_activity = st.text_input(
+                "اكتب نشاطك التجاري بالتفصيل",
+                placeholder="مثال: محل عطور رجالية فاخرة | مشغل خياطة | محل تأجير دراجات نارية...",
+                key="custom_activity_input",
+            )
+            if custom_activity:
+                st.info(f"🤖 سيقوم الذكاء الاصطناعي بتحليل '{custom_activity}' بناءً على بيانات الموقع.")
+
+        st.session_state.target_activity = selected_target if selected_target not in ("", "__custom__") else None
+        st.session_state.custom_activity = custom_activity.strip() if selected_target == "__custom__" else ""
+
+        st.caption("💡 اختر من القائمة، أو اكتب نشاطك بالتفصيل ليحلله الذكاء الاصطناعي، أو اتركه ليقترح النظام الأنسب.")
 
     with tab_money:
         st.caption("📊 املأ ما تعرفه - النظام يحسب الجدوى المالية تلقائياً. الحقول الفارغة تُتجاهل.")
@@ -1592,9 +1824,16 @@ if analyze_btn:
                     a = integrate_image_analysis(image_results, a)
 
             if AI_AVAILABLE:
-                status.markdown('<p class="progress-msg">✨ 95% - تحسين عبر AI...</p>', unsafe_allow_html=True)
-                progress.progress(95)
+                status.markdown('<p class="progress-msg">✨ 92% - تحسين عبر AI...</p>', unsafe_allow_html=True)
+                progress.progress(92)
                 a = ai_enhance(a, pbc, lat, lng)
+
+            # تحليل النشاط المخصص (إن وجد)
+            custom_act = st.session_state.get('custom_activity', '').strip()
+            if custom_act:
+                status.markdown(f'<p class="progress-msg">✍️ 96% - تحليل نشاطك المخصص: {custom_act[:30]}...</p>', unsafe_allow_html=True)
+                progress.progress(96)
+                a['custom_activity_analysis'] = analyze_custom_activity(custom_act, a, pbc, lat, lng)
             st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'places_by_cat': pbc, 'analysis': a}
             st.session_state.chat = []
             status.markdown('<p class="progress-msg">✅ 100% - اكتمل!</p>', unsafe_allow_html=True)
@@ -1656,6 +1895,71 @@ if st.session_state.analysis:
         decision_card += f'<span class="verdict-tag" style="border-right: 3px solid #f59e0b;">⚠ {c}</span>'
     decision_card += "</div></div>"
     st.markdown(decision_card, unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════
+    # 🎯 أفضل نشاط مقترح (يظهر فقط لو ما اختار نشاطاً)
+    # ════════════════════════════════════════════════════
+    if not a.get('target_cat') and a.get('best_activities'):
+        top_act = a['best_activities'][0]
+        reasons_text = " • ".join(top_act['reasons'])
+        st.markdown(f"""<div style="background: linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(139,92,246,0.08) 100%);
+            border: 2px solid #a855f7; border-radius: 18px; padding: 22px; margin-bottom: 18px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:280px;">
+                    <div style="color:#c4b5fd; font-size:13px; font-weight:600; margin-bottom:6px;">🎯 أفضل نشاط مقترح لهذا الموقع</div>
+                    <div style="color:white; font-size:26px; font-weight:800; margin-bottom:10px;">{top_act['icon']} {top_act['cat_name']}</div>
+                    <div style="color:#e2e8f0; font-size:14px; line-height:1.7; margin-bottom:12px;">
+                        💡 <b>لماذا هذا النشاط؟</b> {reasons_text}
+                    </div>
+                    <div style="display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:#cbd5e1;">
+                        <span>📊 الطلب: <b style="color:#10b981;">{top_act['demand']}%</b></span>
+                        <span>🏪 المنافسين الحاليين: <b>{top_act['existing']}</b></span>
+                        <span>📈 التشبع: <b>{top_act['saturation']}%</b></span>
+                    </div>
+                </div>
+                <div style="background:rgba(16,185,129,0.2); color:#10b981; padding:14px 22px; border-radius:14px; text-align:center; min-width:120px;">
+                    <div style="font-size:11px; opacity:0.8;">درجة الفرصة</div>
+                    <div style="font-size:36px; font-weight:900; line-height:1;">{top_act['opportunity_score']}<span style="font-size:18px;">%</span></div>
+                </div>
+            </div>
+            <div style="margin-top:14px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08); color:#94a3b8; font-size:12px;">
+                ℹ️ شاهد القائمة الكاملة لأفضل وأسوأ الأنشطة بالأسفل، أو حدّد نشاطك في "الخيارات المتقدمة" لتحليل أعمق.
+            </div>
+            </div>""", unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════
+    # ✍️ تحليل النشاط المخصص (إن كتب المستخدم نشاطاً)
+    # ════════════════════════════════════════════════════
+    if a.get('custom_activity_analysis'):
+        ca = a['custom_activity_analysis']
+        vc = ca.get('verdict_color', '#94a3b8')
+        sc = ca.get('score', 50)
+        opps_html = "".join(f'<li style="color:#10b981; padding:4px 0; font-size:13px;">✨ {o}</li>' for o in ca.get('opportunities', []))
+        risks_html = "".join(f'<li style="color:#f59e0b; padding:4px 0; font-size:13px;">⚠️ {r}</li>' for r in ca.get('risks', []))
+
+        st.markdown(f"""<div style="background:linear-gradient(135deg, rgba(59,130,246,0.12) 0%, #131826 100%);
+            border:2px solid #3b82f6; border-radius:18px; padding:22px; margin-bottom:18px;">
+            <div style="color:#93c5fd; font-size:13px; font-weight:600; margin-bottom:6px;">✍️ تحليل AI لنشاطك المخصص</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:14px;">
+                <div style="color:white; font-size:22px; font-weight:800;">"{ca['activity']}"</div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <div style="background:rgba(255,255,255,0.06); color:{vc}; padding:8px 16px; border-radius:999px; font-size:14px; font-weight:700;">
+                        {ca['verdict']}
+                    </div>
+                    <div style="background:rgba(255,255,255,0.06); color:{vc}; padding:8px 16px; border-radius:999px; font-size:18px; font-weight:800;">
+                        {sc}<span style="font-size:12px;">/100</span>
+                    </div>
+                </div>
+            </div>
+            <div style="color:#cbd5e1; font-size:14px; line-height:1.7; margin-bottom:14px;">
+                🧠 <b>التحليل:</b> {ca['reasoning']}
+            </div>
+            <div style="color:#94a3b8; font-size:13px; margin-bottom:8px;">
+                🏪 منافسون مشابهون مقدّرون: <b style="color:#f59e0b;">{ca.get('similar_competitors', 0)}</b>
+            </div>
+            {f'<div style="margin-top:12px;"><div style="color:#10b981; font-size:13px; font-weight:600; margin-bottom:6px;">✨ الفرص المتاحة لهذا النشاط:</div><ul style="margin:0; padding-right:18px;">{opps_html}</ul></div>' if opps_html else ''}
+            {f'<div style="margin-top:12px;"><div style="color:#f59e0b; font-size:13px; font-weight:600; margin-bottom:6px;">⚠️ تحذيرات يجب الانتباه لها:</div><ul style="margin:0; padding-right:18px;">{risks_html}</ul></div>' if risks_html else ''}
+            </div>""", unsafe_allow_html=True)
 
     # ════════════════════════════════════════════════════
     # 📄 زر تصدير التقرير PDF
@@ -1737,7 +2041,7 @@ if st.session_state.analysis:
                 </div>""", unsafe_allow_html=True)
 
     # ════════════════════════════════════════════════════
-    # 4️⃣ أسوأ الأنشطة (التي يجب تجنبها) - جديد
+    # 
     # ════════════════════════════════════════════════════
     if a.get('worst_activities'):
         st.markdown('<div class="section-title">❌ أنشطة يُنصح بتجنبها هنا</div>', unsafe_allow_html=True)
@@ -2056,6 +2360,7 @@ if st.session_state.analysis:
             response = ai_chat(user_msg, a, pbc, lat, lng)
         st.session_state.chat.append({"role": "assistant", "content": response})
         st.rerun()
+
 else:
     st.markdown("""
     <div style="text-align:center; padding:60px 20px; background:#131826; border-radius:18px; border:1px solid #1f2937; margin-top:24px;">
