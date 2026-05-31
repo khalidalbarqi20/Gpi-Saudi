@@ -142,6 +142,569 @@ ACTIVITY_TYPES = {
 
 
 # ============================================================================
+# 🧪 كيمياء العائلة - قاعدة الترابطات بين الأنشطة
+# مبنية على:
+#   - Retail Agglomeration Theory
+#   - Co-Tenancy Effect (Brown 1987, Konishi 2005)
+#   - Trip Chaining Behavior
+#   - Central Place Theory
+#   - السياق السعودي (مطعم+ديوانية، مغسلة+حلاق، إلخ)
+# ============================================================================
+
+# FAMILY_GROUPS: تصنيف الفئات إلى عائلات منطقية
+# كل فئة لها عائلة رئيسية، وفي بعض الحالات عائلة ثانوية
+FAMILY_GROUPS = {
+    # 🍽️ عائلة الطعام والمشروبات
+    "food_beverage": {
+        "name": "الطعام والضيافة",
+        "icon": "🍽️",
+        "members": ["restaurant", "cafe", "fast_food"]
+    },
+    # 🛒 عائلة الاحتياجات اليومية
+    "daily_essentials": {
+        "name": "الاحتياجات اليومية",
+        "icon": "🛒",
+        "members": ["grocery", "pharmacy", "atm", "bank"]
+    },
+    # 🚗 عائلة السيارات
+    "automotive": {
+        "name": "خدمات السيارات",
+        "icon": "🚗",
+        "members": ["fuel", "auto_repair", "car_wash", "car_dealer", "car_rental",
+                    "ev_charging_station", "parking"]
+    },
+    # 🛍️ عائلة التسوق
+    "shopping_lifestyle": {
+        "name": "التسوق ونمط الحياة",
+        "icon": "🛍️",
+        "members": ["shopping", "clothing_store", "electronics_store",
+                    "home_garden", "sporting_goods"]
+    },
+    # ⚕️ عائلة الصحة والعناية الشخصية
+    "health_wellness": {
+        "name": "الصحة والعناية",
+        "icon": "⚕️",
+        "members": ["hospital", "clinic", "pharmacy", "beauty_salon", "fitness_center"]
+    },
+    # 🎬 عائلة الترفيه
+    "entertainment": {
+        "name": "الترفيه والثقافة",
+        "icon": "🎬",
+        "members": ["cinema", "park", "museum", "tourist_attraction", "library", "nightclub"]
+    },
+    # 🏨 عائلة السفر والضيافة
+    "travel_hospitality": {
+        "name": "السفر والإقامة",
+        "icon": "🏨",
+        "members": ["hotel", "tourist_attraction", "car_rental", "restaurant"]
+    },
+    # 🏫 عائلة التعليم والمجتمع
+    "education_community": {
+        "name": "التعليم والمجتمع",
+        "icon": "🏫",
+        "members": ["school", "library", "mosque"]
+    },
+    # 🔧 عائلة الخدمات
+    "services": {
+        "name": "الخدمات العامة",
+        "icon": "🔧",
+        "members": ["services", "atm", "bank"]
+    },
+}
+
+
+# ============================================================================
+# 🧬 مصفوفة الترابط (Chemistry Matrix)
+# تحدد قوة العلاقة بين كل زوج من الفئات.
+# المستويات: 'strong', 'medium', 'weak', 'compete', 'neutral'
+#   strong   : ترابط قوي جداً - مكمّل مباشر (Trip Chaining واضح)
+#   medium   : ترابط متوسط - يستفيدون من نفس الجمهور
+#   weak     : ترابط ضعيف - متعايشون لكن لا تأثير ملحوظ
+#   compete  : منافسة مباشرة - نفس الزبون والمنتج
+#   neutral  : لا علاقة - مستقلون تماماً
+# نخزّن فقط العلاقات غير-المحايدة (لتوفير الحجم)
+# الشكل: (cat1, cat2): level
+# ============================================================================
+
+CHEMISTRY = {
+    # ══════════════════════════════════════════════════
+    # 🍽️ ترابطات عائلة الطعام
+    # ══════════════════════════════════════════════════
+    # سعودي تقليدي: عشاء ← قهوة/ديوانية
+    ("restaurant", "cafe"): "strong",
+    ("cafe", "restaurant"): "strong",
+    # وجبات سريعة + قهوة (شباب)
+    ("fast_food", "cafe"): "strong",
+    ("cafe", "fast_food"): "strong",
+    # تنوع طعام - مكمل
+    ("restaurant", "fast_food"): "medium",
+    ("fast_food", "restaurant"): "medium",
+    # مطعم + حلويات/آيس كريم (تكملة الوجبة)
+    # (سنضيف لاحقاً إذا توسعنا)
+
+    # ══════════════════════════════════════════════════
+    # 🛒 ترابطات الاحتياجات اليومية
+    # ══════════════════════════════════════════════════
+    # بقالة + صيدلية: رحلة احتياجات يومية
+    ("grocery", "pharmacy"): "strong",
+    ("pharmacy", "grocery"): "strong",
+    # بقالة/صيدلية + صراف
+    ("grocery", "atm"): "medium",
+    ("atm", "grocery"): "medium",
+    ("pharmacy", "atm"): "medium",
+    ("atm", "pharmacy"): "medium",
+    # بقالة/صيدلية + بنك
+    ("grocery", "bank"): "medium",
+    ("bank", "grocery"): "medium",
+    # بقالة + مخبز/مطعم (شائع في السعودية)
+    ("grocery", "restaurant"): "medium",
+    ("restaurant", "grocery"): "medium",
+    ("grocery", "fast_food"): "medium",
+    ("fast_food", "grocery"): "medium",
+    # بقالة + خدمات عامة
+    ("grocery", "services"): "medium",
+    ("services", "grocery"): "medium",
+
+    # ══════════════════════════════════════════════════
+    # 🚗 ترابطات عائلة السيارات (قوية جداً)
+    # ══════════════════════════════════════════════════
+    # محطة وقود + مغسلة (الكلاسيكي)
+    ("fuel", "car_wash"): "strong",
+    ("car_wash", "fuel"): "strong",
+    # محطة وقود + صيانة
+    ("fuel", "auto_repair"): "strong",
+    ("auto_repair", "fuel"): "strong",
+    # وقود + قهوة/سناك (المسافرون)
+    ("fuel", "cafe"): "strong",
+    ("cafe", "fuel"): "strong",
+    ("fuel", "fast_food"): "strong",
+    ("fast_food", "fuel"): "strong",
+    # وقود + بقالة (محطة شاملة)
+    ("fuel", "grocery"): "strong",
+    ("grocery", "fuel"): "strong",
+    # وقود + شحن كهربائي (تطور النشاط)
+    ("fuel", "ev_charging_station"): "medium",
+    ("ev_charging_station", "fuel"): "medium",
+    # وقود + صراف
+    ("fuel", "atm"): "medium",
+    ("atm", "fuel"): "medium",
+    # المغسلة + الحلاق (مثالك الشهير - الانتظار = خدمة)
+    ("car_wash", "beauty_salon"): "strong",
+    ("beauty_salon", "car_wash"): "strong",
+    # المغسلة + المقهى (انتظار)
+    ("car_wash", "cafe"): "strong",
+    ("cafe", "car_wash"): "strong",
+    ("car_wash", "fast_food"): "strong",
+    ("fast_food", "car_wash"): "strong",
+    # المغسلة + الصيانة
+    ("car_wash", "auto_repair"): "strong",
+    ("auto_repair", "car_wash"): "strong",
+    # الصيانة + قطع الغيار (نمثلها بـ services)
+    ("auto_repair", "services"): "medium",
+    ("services", "auto_repair"): "medium",
+    # الصيانة + قهوة (الانتظار)
+    ("auto_repair", "cafe"): "medium",
+    ("cafe", "auto_repair"): "medium",
+    ("auto_repair", "fast_food"): "medium",
+    ("fast_food", "auto_repair"): "medium",
+    # معرض سيارات + تأجير (نفس المهتم)
+    ("car_dealer", "car_rental"): "medium",
+    ("car_rental", "car_dealer"): "medium",
+    # معرض سيارات + تمويل/بنك
+    ("car_dealer", "bank"): "medium",
+    ("bank", "car_dealer"): "medium",
+    # شحن كهربائي + كافيه (الانتظار 30-60 دقيقة)
+    ("ev_charging_station", "cafe"): "strong",
+    ("cafe", "ev_charging_station"): "strong",
+    ("ev_charging_station", "restaurant"): "medium",
+    ("restaurant", "ev_charging_station"): "medium",
+    ("ev_charging_station", "shopping"): "medium",
+    ("shopping", "ev_charging_station"): "medium",
+
+    # ══════════════════════════════════════════════════
+    # 🛍️ ترابطات التسوق
+    # ══════════════════════════════════════════════════
+    # تسوق + كافيه (شائع جداً)
+    ("shopping", "cafe"): "strong",
+    ("cafe", "shopping"): "strong",
+    ("shopping", "restaurant"): "strong",
+    ("restaurant", "shopping"): "strong",
+    ("shopping", "fast_food"): "medium",
+    ("fast_food", "shopping"): "medium",
+    # ملابس + أحذية/إكسسوار (نمثلها بـ shopping)
+    ("clothing_store", "shopping"): "strong",
+    ("shopping", "clothing_store"): "strong",
+    # ملابس + صالون تجميل (نفس الجمهور)
+    ("clothing_store", "beauty_salon"): "strong",
+    ("beauty_salon", "clothing_store"): "strong",
+    # ملابس + كافيه
+    ("clothing_store", "cafe"): "strong",
+    ("cafe", "clothing_store"): "strong",
+    ("clothing_store", "restaurant"): "medium",
+    ("restaurant", "clothing_store"): "medium",
+    # إلكترونيات + خدمات إصلاح (نمثلها بـ services)
+    ("electronics_store", "services"): "medium",
+    ("services", "electronics_store"): "medium",
+    # إلكترونيات + كافيه
+    ("electronics_store", "cafe"): "medium",
+    ("cafe", "electronics_store"): "medium",
+    # منازل وحدائق + إلكترونيات (تجهيز منزلي)
+    ("home_garden", "electronics_store"): "medium",
+    ("electronics_store", "home_garden"): "medium",
+    # رياضي + جيم
+    ("sporting_goods", "fitness_center"): "strong",
+    ("fitness_center", "sporting_goods"): "strong",
+
+    # ══════════════════════════════════════════════════
+    # ⚕️ ترابطات الصحة
+    # ══════════════════════════════════════════════════
+    # عيادة + صيدلية (الكلاسيكي)
+    ("clinic", "pharmacy"): "strong",
+    ("pharmacy", "clinic"): "strong",
+    # مستشفى + صيدلية
+    ("hospital", "pharmacy"): "strong",
+    ("pharmacy", "hospital"): "strong",
+    # مستشفى + فندق/شقق (المرافقون من خارج المنطقة)
+    ("hospital", "hotel"): "strong",
+    ("hotel", "hospital"): "strong",
+    # مستشفى + مطعم (مرافقون يتعشّون)
+    ("hospital", "restaurant"): "medium",
+    ("restaurant", "hospital"): "medium",
+    ("hospital", "cafe"): "medium",
+    ("cafe", "hospital"): "medium",
+    ("hospital", "fast_food"): "medium",
+    ("fast_food", "hospital"): "medium",
+    # مستشفى + عيادات (تخصصات مكملة)
+    ("hospital", "clinic"): "medium",
+    ("clinic", "hospital"): "medium",
+    # صالون + جيم (الصحة والجمال)
+    ("beauty_salon", "fitness_center"): "strong",
+    ("fitness_center", "beauty_salon"): "strong",
+    # جيم + مطعم صحي/بروتين (نمثلها بـ restaurant)
+    ("fitness_center", "restaurant"): "medium",
+    ("restaurant", "fitness_center"): "medium",
+    # جيم + كافيه (بعد التمرين)
+    ("fitness_center", "cafe"): "medium",
+    ("cafe", "fitness_center"): "medium",
+
+    # ══════════════════════════════════════════════════
+    # 🎬 ترابطات الترفيه
+    # ══════════════════════════════════════════════════
+    # سينما + مطعم/كافيه (قبل/بعد الفيلم)
+    ("cinema", "restaurant"): "strong",
+    ("restaurant", "cinema"): "strong",
+    ("cinema", "cafe"): "strong",
+    ("cafe", "cinema"): "strong",
+    ("cinema", "fast_food"): "strong",
+    ("fast_food", "cinema"): "strong",
+    # سينما + تسوق (الخروج العائلي)
+    ("cinema", "shopping"): "strong",
+    ("shopping", "cinema"): "strong",
+    # متنزه/حديقة + كافيه/مطعم
+    ("park", "cafe"): "strong",
+    ("cafe", "park"): "strong",
+    ("park", "restaurant"): "strong",
+    ("restaurant", "park"): "strong",
+    ("park", "fast_food"): "medium",
+    ("fast_food", "park"): "medium",
+    # متحف + كافيه/مطعم
+    ("museum", "cafe"): "medium",
+    ("cafe", "museum"): "medium",
+    ("museum", "restaurant"): "medium",
+    ("restaurant", "museum"): "medium",
+    # متحف + معالم سياحية
+    ("museum", "tourist_attraction"): "strong",
+    ("tourist_attraction", "museum"): "strong",
+    # مكتبة + كافيه (دراسة وقراءة)
+    ("library", "cafe"): "strong",
+    ("cafe", "library"): "strong",
+
+    # ══════════════════════════════════════════════════
+    # 🏨 ترابطات السياحة والسفر
+    # ══════════════════════════════════════════════════
+    # فندق + مطعم (ضيافة كاملة)
+    ("hotel", "restaurant"): "strong",
+    ("restaurant", "hotel"): "strong",
+    ("hotel", "cafe"): "strong",
+    ("cafe", "hotel"): "strong",
+    # فندق + معالم سياحية
+    ("hotel", "tourist_attraction"): "strong",
+    ("tourist_attraction", "hotel"): "strong",
+    # فندق + تأجير سيارات
+    ("hotel", "car_rental"): "strong",
+    ("car_rental", "hotel"): "strong",
+    # فندق + متحف
+    ("hotel", "museum"): "medium",
+    ("museum", "hotel"): "medium",
+    # معالم سياحية + مطاعم/كافيهات
+    ("tourist_attraction", "restaurant"): "strong",
+    ("restaurant", "tourist_attraction"): "strong",
+    ("tourist_attraction", "cafe"): "strong",
+    ("cafe", "tourist_attraction"): "strong",
+    # معالم سياحية + تسوق (تذكارات)
+    ("tourist_attraction", "shopping"): "strong",
+    ("shopping", "tourist_attraction"): "strong",
+
+    # ══════════════════════════════════════════════════
+    # 🏫 ترابطات التعليم والمجتمع
+    # ══════════════════════════════════════════════════
+    # مدرسة + بقالة/قرطاسية (نمثلها بـ grocery و services)
+    ("school", "grocery"): "medium",
+    ("grocery", "school"): "medium",
+    ("school", "services"): "medium",
+    ("services", "school"): "medium",
+    # مدرسة + مطعم سريع (وجبات الأطفال)
+    ("school", "fast_food"): "medium",
+    ("fast_food", "school"): "medium",
+    # مكتبة + مدرسة
+    ("library", "school"): "strong",
+    ("school", "library"): "strong",
+    # مسجد + كل شي تقريباً (مركز المجتمع)
+    ("mosque", "grocery"): "medium",
+    ("grocery", "mosque"): "medium",
+    ("mosque", "restaurant"): "medium",
+    ("restaurant", "mosque"): "medium",
+
+    # ══════════════════════════════════════════════════
+    # 🏦 ترابطات المالية
+    # ══════════════════════════════════════════════════
+    # بنك + صراف (مكملان)
+    ("bank", "atm"): "strong",
+    ("atm", "bank"): "strong",
+    # بنك + تسوق (سحب نقدي قبل التسوق)
+    ("bank", "shopping"): "medium",
+    ("shopping", "bank"): "medium",
+    ("atm", "shopping"): "medium",
+    ("shopping", "atm"): "medium",
+    # بنك + مطعم
+    ("atm", "restaurant"): "medium",
+    ("restaurant", "atm"): "medium",
+
+    # ══════════════════════════════════════════════════
+    # ❌ منافسات مباشرة (نفس الزبون والمنتج)
+    # ══════════════════════════════════════════════════
+    # مهم: التشبع يعكس هذا، لكن نوضحه هنا للتفسير
+    # (لا نخصم نقاطاً إضافية، فقط لتمييز "وجود منافسة")
+}
+
+
+# ============================================================================
+# 🧪 محرك تحليل الانسجام (Family Chemistry Engine)
+# ============================================================================
+
+def get_chemistry(cat_a, cat_b):
+    """يرجع مستوى الترابط بين فئتين"""
+    if cat_a == cat_b:
+        return "compete"  # نفس الفئة = منافسة
+    rel = CHEMISTRY.get((cat_a, cat_b))
+    if rel:
+        return rel
+    # محاولة عكسية (للأمان رغم أننا نخزّن الاتجاهين)
+    rel = CHEMISTRY.get((cat_b, cat_a))
+    if rel:
+        return rel
+    return "neutral"
+
+
+def chemistry_score(level):
+    """يحوّل مستوى الترابط لنقاط رقمية"""
+    return {
+        "strong": 10,
+        "medium": 5,
+        "weak": 1,
+        "neutral": 0,
+        "compete": -3,  # وجود محل مماثل = ضغط تنافسي
+    }.get(level, 0)
+
+
+def family_chemistry_analysis(target_cat, pbc):
+    """
+    يحلل مدى انسجام نشاط معين مع المحيط التجاري الموجود.
+    
+    يرجع dict فيه:
+    - harmony_score: 0-100 درجة الانسجام
+    - harmony_level: نص توصيفي
+    - synergies: قائمة الترابطات القوية (لماذا ينسجم)
+    - conflicts: قائمة المنافسات (تنافس مباشر)
+    - neutral_count: عدد الأنشطة المحايدة
+    - family_alignment: درجة انتماء النشاط للعائلة الغالبة
+    """
+    if not target_cat or target_cat not in CATEGORIES:
+        return None
+    
+    synergies = []
+    medium_links = []
+    conflicts = []
+    neutral_count = 0
+    
+    # نحسب القوة المطلقة للترابطات (Synergy Power)
+    # بدلاً من قسمة بسيطة، نستخدم منطق "كم محل مكمّل بقوة موجود في المنطقة"
+    strong_power = 0  # مجموع المحلات القوية مع وزن
+    medium_power = 0
+    compete_pressure = 0
+    
+    for other_cat, places in pbc.items():
+        if not places:
+            continue
+        count = len(places)
+        level = get_chemistry(target_cat, other_cat)
+        
+        # سقف 8 محلات لكل فئة (لتجنب الإفراط)
+        effective_count = min(count, 8)
+        
+        cat_info = CATEGORIES.get(other_cat, {})
+        cat_name = cat_info.get("name", other_cat)
+        cat_icon = cat_info.get("icon", "")
+        
+        if level == "strong":
+            strong_power += effective_count * 10
+            synergies.append({
+                "cat": other_cat,
+                "icon": cat_icon,
+                "name": cat_name,
+                "count": count,
+                "reason": _explain_synergy(target_cat, other_cat),
+            })
+        elif level == "medium":
+            medium_power += effective_count * 4
+            medium_links.append({
+                "cat": other_cat,
+                "icon": cat_icon,
+                "name": cat_name,
+                "count": count,
+            })
+        elif level == "compete":
+            compete_pressure += min(count, 5) * 2
+            conflicts.append({
+                "cat": other_cat,
+                "icon": cat_icon,
+                "name": cat_name,
+                "count": count,
+            })
+        else:
+            neutral_count += count
+    
+    # المعادلة الجديدة:
+    # القوة المطلقة (لها سقف ~80) + بونص العائلة الغالبة - ضغط المنافسة
+    # الهدف: نشاط عنده 3+ ترابطات قوية مع 5+ محلات = انسجام ممتاز
+    raw_harmony = strong_power + medium_power - compete_pressure
+    
+    # تطبيع: نقطة كل 1 = راو ~140 = 100%
+    # أي: 6 ترابطات قوية × 8 محلات × 10 = 480 (مع سقف معقول)
+    # نستخدم تحويل لوغاريتمي مبسّط لتعطي توزيع جيد
+    if raw_harmony <= 0:
+        harmony = 0
+    else:
+        # 0-30 → 0-40 (سريع لتمييز "لا انسجام")
+        # 30-100 → 40-70 (متوسط)
+        # 100-200 → 70-90 (جيد)
+        # 200+ → 90-100 (ممتاز)
+        if raw_harmony <= 30:
+            harmony = int(raw_harmony * 40 / 30)
+        elif raw_harmony <= 100:
+            harmony = 40 + int((raw_harmony - 30) * 30 / 70)
+        elif raw_harmony <= 200:
+            harmony = 70 + int((raw_harmony - 100) * 20 / 100)
+        else:
+            harmony = min(100, 90 + int((raw_harmony - 200) / 20))
+    
+    # تصنيف الانسجام
+    if harmony >= 70:
+        harmony_level = "انسجام ممتاز"
+        harmony_color = "#10b981"
+    elif harmony >= 50:
+        harmony_level = "انسجام جيد"
+        harmony_color = "#22c55e"
+    elif harmony >= 30:
+        harmony_level = "انسجام متوسط"
+        harmony_color = "#f59e0b"
+    elif harmony >= 15:
+        harmony_level = "انسجام ضعيف"
+        harmony_color = "#f97316"
+    else:
+        harmony_level = "غريب عن المحيط"
+        harmony_color = "#ef4444"
+    
+    # تحديد العائلة الغالبة في المنطقة
+    family_counts = {}
+    for other_cat, places in pbc.items():
+        for fam_key, fam in FAMILY_GROUPS.items():
+            if other_cat in fam["members"]:
+                family_counts[fam_key] = family_counts.get(fam_key, 0) + len(places)
+    
+    dominant_family = None
+    if family_counts:
+        dominant_family_key = max(family_counts, key=family_counts.get)
+        dominant_family = {
+            "key": dominant_family_key,
+            "name": FAMILY_GROUPS[dominant_family_key]["name"],
+            "icon": FAMILY_GROUPS[dominant_family_key]["icon"],
+            "count": family_counts[dominant_family_key],
+        }
+    
+    # هل نشاطنا ينتمي لنفس العائلة؟
+    target_families = [fk for fk, fam in FAMILY_GROUPS.items() if target_cat in fam["members"]]
+    aligned_with_dominant = bool(dominant_family and dominant_family["key"] in target_families)
+    
+    return {
+        "harmony_score": harmony,
+        "harmony_level": harmony_level,
+        "harmony_color": harmony_color,
+        "synergies": sorted(synergies, key=lambda x: -x["count"])[:6],
+        "medium_links": sorted(medium_links, key=lambda x: -x["count"])[:4],
+        "conflicts": sorted(conflicts, key=lambda x: -x["count"])[:3],
+        "neutral_count": neutral_count,
+        "dominant_family": dominant_family,
+        "aligned_with_dominant": aligned_with_dominant,
+        "target_families": target_families,
+        "raw_power": raw_harmony,
+    }
+
+
+def _explain_synergy(cat_a, cat_b):
+    """يفسّر لماذا الترابط قوي بين فئتين"""
+    # قاموس تفسيرات السعودية
+    explanations = {
+        ("restaurant", "cafe"): "العشاء ثم القهوة/الديوانية - تقليد سعودي",
+        ("cafe", "restaurant"): "القهوة قبل أو بعد الوجبة",
+        ("car_wash", "beauty_salon"): "اغسل سيارتك وأنت تحلق",
+        ("beauty_salon", "car_wash"): "خدمة شخصية + خدمة سيارة في زيارة واحدة",
+        ("fuel", "car_wash"): "عبّي البنزين واغسل السيارة",
+        ("fuel", "cafe"): "استراحة المسافر",
+        ("fuel", "fast_food"): "وجبة سريعة للمسافر",
+        ("fuel", "grocery"): "محطة شاملة - وقود وأساسيات",
+        ("clinic", "pharmacy"): "الوصفة الطبية → الدواء مباشرة",
+        ("hospital", "pharmacy"): "صيدلية للمرضى والمرافقين",
+        ("hospital", "hotel"): "إقامة للمرافقين من خارج المنطقة",
+        ("ev_charging_station", "cafe"): "وقت الشحن (30-60 دقيقة) = استراحة",
+        ("cinema", "restaurant"): "الخروج العائلي - عشاء وفيلم",
+        ("cinema", "cafe"): "قبل أو بعد الفيلم",
+        ("cinema", "shopping"): "اليوم العائلي الكامل",
+        ("park", "cafe"): "نزهة وقهوة",
+        ("park", "restaurant"): "العشاء في الحديقة",
+        ("hotel", "restaurant"): "ضيافة كاملة للنزلاء",
+        ("hotel", "tourist_attraction"): "السياح يحتاجون إقامة قريبة",
+        ("tourist_attraction", "shopping"): "تذكارات وهدايا",
+        ("car_wash", "cafe"): "انتظار غسيل = وقت قهوة",
+        ("auto_repair", "fuel"): "خدمات سيارات متكاملة",
+        ("car_wash", "auto_repair"): "كل خدمات السيارة في مكان واحد",
+        ("clothing_store", "beauty_salon"): "إطلالة كاملة - ملابس وعناية",
+        ("clothing_store", "cafe"): "تسوق وقهوة",
+        ("shopping", "cafe"): "استراحة بين المحلات",
+        ("shopping", "restaurant"): "تسوق ثم وجبة",
+        ("library", "cafe"): "قراءة ومذاكرة وقهوة",
+        ("museum", "tourist_attraction"): "محاور ثقافية متكاملة",
+        ("sporting_goods", "fitness_center"): "نفس الجمهور الرياضي",
+        ("fitness_center", "beauty_salon"): "العناية بالصحة والجمال",
+        ("grocery", "pharmacy"): "احتياجات يومية في رحلة واحدة",
+        ("bank", "atm"): "خدمات مالية متكاملة",
+        ("car_dealer", "car_rental"): "نفس المهتم بالسيارات",
+        ("library", "school"): "موارد تعليمية",
+    }
+    return explanations.get((cat_a, cat_b)) or explanations.get((cat_b, cat_a)) or "تكامل وظيفي بين النشاطين"
+
+
+# ============================================================================
 # [الدفعة 1] بيانات السكان للمحافظات السعودية (GASTAT 2022 + مصادر موثقة)
 # ============================================================================
 # المصدر: تعداد 2022 - الهيئة العامة للإحصاء + Wikipedia (citypopulation.de)
@@ -878,12 +1441,72 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             'reasons': reasons[:3] if reasons else ["تحليل قياسي"],
         })
 
-    results.sort(key=lambda x: -x['opportunity_score'])
+    # ════════════════════════════════════════════════════════════
+    # 🧪 دمج كيمياء العائلة - يحوّل الفرصة من رياضية إلى منطقية
+    # المعادلة الجديدة (محسّنة):
+    #   - الانسجام مع المحيط هو العامل الأهم (60% من الفرصة النهائية)
+    #   - الفرصة الأصلية (الطلب - التشبع) لها وزن 40%
+    #   - إذا لا توجد ترابطات قوية إطلاقاً، خصم إضافي 15 نقطة
+    # ════════════════════════════════════════════════════════════
+    for r in results:
+        chem = family_chemistry_analysis(r['cat_key'], pbc)
+        if chem:
+            r['harmony_score'] = chem['harmony_score']
+            r['harmony_level'] = chem['harmony_level']
+            r['harmony_color'] = chem['harmony_color']
+            r['synergies'] = chem['synergies']
+            r['aligned_with_dominant'] = chem['aligned_with_dominant']
+            r['dominant_family'] = chem['dominant_family']
+
+            original_opp = r['opportunity_score']
+            harmony = chem['harmony_score']
+
+            # المعادلة: 40% فرصة + 60% انسجام
+            final_opp = int((original_opp * 0.4) + (harmony * 0.6))
+
+            # خصم إضافي للأنشطة بدون ترابطات قوية (synergies = 0)
+            # هذا يعالج مشكلة "إلكترونيات في منطقة مطاعم"
+            if len(chem['synergies']) == 0:
+                final_opp = max(0, final_opp - 15)
+
+            # بونص للأنشطة المنسجمة جداً (3+ ترابطات قوية)
+            if len(chem['synergies']) >= 3:
+                final_opp = min(100, final_opp + 5)
+
+            # بونص لو ينتمي للعائلة الغالبة
+            if chem.get('aligned_with_dominant'):
+                final_opp = min(100, final_opp + 3)
+
+            r['final_opportunity'] = final_opp
+
+            # إضافة سبب الانسجام
+            if chem['synergies']:
+                top_syn = chem['synergies'][0]
+                synergy_reason = f"🧪 ينسجم مع {top_syn['icon']} {top_syn['name']} ({top_syn['count']} محل) - {top_syn['reason']}"
+                r['reasons'].insert(0, synergy_reason)
+                r['reasons'] = r['reasons'][:3]
+            elif harmony < 15:
+                r['reasons'].insert(0, f"⚠️ غريب عن المحيط - لا توجد ترابطات قوية مع المحلات الموجودة")
+                r['reasons'] = r['reasons'][:3]
+            elif len(chem['synergies']) == 0:
+                r['reasons'].insert(0, f"⚠️ لا توجد ترابطات قوية مع المحيط - قد يحتاج جهد تسويقي")
+                r['reasons'] = r['reasons'][:3]
+        else:
+            r['harmony_score'] = 0
+            r['harmony_level'] = "غير محدد"
+            r['harmony_color'] = "#94a3b8"
+            r['synergies'] = []
+            r['aligned_with_dominant'] = False
+            r['dominant_family'] = None
+            r['final_opportunity'] = r['opportunity_score']
+
+    # ترتيب بناءً على الفرصة النهائية (المدموجة مع الانسجام)
+    results.sort(key=lambda x: -x['final_opportunity'])
     best = results[:3]
-    extras = [r for r in results[3:] if r['opportunity_score'] >= 50]
+    extras = [r for r in results[3:] if r['final_opportunity'] >= 50]
     best.extend(extras[:2])
     best_keys = {b['cat_key'] for b in best}
-    worst_candidates = [r for r in results if r['cat_key'] not in best_keys and r['opportunity_score'] < 35]
+    worst_candidates = [r for r in results if r['cat_key'] not in best_keys and r['final_opportunity'] < 35]
     worst = worst_candidates[-5:] if len(worst_candidates) > 5 else worst_candidates
     return best, worst
 # ============================================================================
@@ -1550,17 +2173,40 @@ def build_report_html(a, pbc, lat, lng, radius):
         </div>
         """
 
-    # أفضل نشاط (لو ما اختار)
+    # أفضل نشاط (لو ما اختار) - مع كيمياء العائلة
     best_act_highlight = ""
     if not a.get('target_cat') and a.get('best_activities'):
         top_act = a['best_activities'][0]
         reasons_text = " • ".join(top_act['reasons'])
+        final_score = top_act.get('final_opportunity', top_act['opportunity_score'])
+        harmony = top_act.get('harmony_score', 0)
+        harmony_level = top_act.get('harmony_level', '-')
+        synergies = top_act.get('synergies', [])
+        dom_fam = top_act.get('dominant_family')
+        
+        synergies_html = ""
+        if synergies:
+            synergies_html = '<div style="margin-top:12px; padding:12px; background:#ecfdf5; border-radius:8px; border-right:3px solid #10b981;">'
+            synergies_html += '<div style="color:#047857; font-weight:700; font-size:13px; margin-bottom:6px;">🧪 ترابطات قوية مع المحيط:</div>'
+            for syn in synergies[:3]:
+                synergies_html += f'<div style="color:#4b5563; font-size:12px; padding:2px 0;">✓ {syn["icon"]} {syn["name"]} ({syn["count"]} محل) — {syn["reason"]}</div>'
+            synergies_html += '</div>'
+        
+        dom_fam_html = ""
+        if dom_fam:
+            dom_fam_html = f'<p style="color:#3b82f6; font-size:13px; margin-top:6px;">🏆 العائلة الغالبة: <b>{dom_fam["icon"]} {dom_fam["name"]}</b> ({dom_fam["count"]} محل)</p>'
+        
         best_act_highlight = f"""
         <div class="section" style="border-color:#a855f7; background:rgba(168,85,247,0.05);">
             <div style="color:#7c3aed; font-size:13px; font-weight:600; margin-bottom:6px;">🎯 أفضل نشاط مقترح لهذا الموقع</div>
-            <h2 style="color:#1f2937;">{top_act['icon']} {top_act['cat_name']} <span style="background:#d1fae5; color:#047857; padding:6px 14px; border-radius:999px; font-size:18px;">{top_act['opportunity_score']}%</span></h2>
+            <h2 style="color:#1f2937;">{top_act['icon']} {top_act['cat_name']} <span style="background:#d1fae5; color:#047857; padding:6px 14px; border-radius:999px; font-size:18px;">{final_score}%</span></h2>
             <p style="margin-top:10px; color:#4b5563;"><b>لماذا هذا النشاط؟</b> {reasons_text}</p>
-            <p style="color:#9ca3af; font-size:12px;">⚠️ اقتراح مبدئي - غياب نشاط لا يعني بالضرورة وجود طلب</p>
+            <p style="color:#6b7280; font-size:13px; margin-top:6px;">
+                🧪 الانسجام مع المحيط: <b style="color:#10b981;">{harmony}% ({harmony_level})</b>
+            </p>
+            {dom_fam_html}
+            {synergies_html}
+            <p style="color:#9ca3af; font-size:12px; margin-top:8px;">⚠️ اقتراح مبني على تحليل ترابطات حقيقية - يحتاج تحقق ميداني</p>
         </div>
         """
 
@@ -1620,35 +2266,42 @@ def build_report_html(a, pbc, lat, lng, radius):
         </div>
         """
 
-    # أفضل الأنشطة
+    # أفضل الأنشطة - مع كيمياء العائلة
     best_html = ""
     if a.get('best_activities'):
         for i, act in enumerate(a['best_activities'], 1):
             reasons = " • ".join(act['reasons'])
+            final_score = act.get('final_opportunity', act['opportunity_score'])
+            harmony = act.get('harmony_score', 0)
+            harmony_level = act.get('harmony_level', '-')
+            harmony_color = act.get('harmony_color', '#94a3b8')
             best_html += f"""<div class="activity-card good">
                 <div class="rank">{i}</div>
                 <div class="activity-info">
                     <div class="activity-name">{act['icon']} {act['cat_name']}</div>
                     <div class="activity-reason">💡 {reasons}</div>
-                    <div class="activity-meta">طلب: {act['demand']}% | منافسين: {act['existing']} | إشباع: {act['saturation']}%</div>
+                    <div class="activity-meta">طلب: {act['demand']}% | منافسين: {act['existing']} | إشباع: {act['saturation']}% | <span style="color:{harmony_color};">🧪 انسجام: {harmony}% ({harmony_level})</span></div>
                 </div>
-                <div class="activity-score">{act['opportunity_score']}%</div>
+                <div class="activity-score">{final_score}%</div>
             </div>"""
-    best_section = f"""<div class="section page-break"><h3>✅ أفضل الأنشطة المقترحة <span style="font-size:12px; color:#9ca3af;">(اقتراحات مبدئية)</span></h3>{best_html}</div>""" if best_html else ""
+    best_section = f"""<div class="section page-break"><h3>✅ أفضل الأنشطة المقترحة <span style="font-size:12px; color:#9ca3af;">(مدعومة بكيمياء العائلة)</span></h3>{best_html}</div>""" if best_html else ""
 
     # أسوأ الأنشطة
     worst_html = ""
     if a.get('worst_activities'):
         for act in a['worst_activities']:
             reasons = " • ".join(act['reasons'])
+            final_score = act.get('final_opportunity', act['opportunity_score'])
+            harmony = act.get('harmony_score', 0)
+            harmony_color = act.get('harmony_color', '#94a3b8')
             worst_html += f"""<div class="activity-card bad">
                 <div class="rank" style="color:#ef4444;">✗</div>
                 <div class="activity-info">
                     <div class="activity-name">{act['icon']} {act['cat_name']}</div>
                     <div class="activity-reason">⚠️ {reasons}</div>
-                    <div class="activity-meta">منافسين: {act['existing']} | إشباع: {act['saturation']}%</div>
+                    <div class="activity-meta">منافسين: {act['existing']} | إشباع: {act['saturation']}% | <span style="color:{harmony_color};">🧪 انسجام: {harmony}%</span></div>
                 </div>
-                <div class="activity-score bad">{act['opportunity_score']}%</div>
+                <div class="activity-score bad">{final_score}%</div>
             </div>"""
     worst_section = f"""<div class="section"><h3>❌ أنشطة يُنصح بتجنبها</h3>{worst_html}</div>""" if worst_html else ""
 
@@ -2532,11 +3185,26 @@ else:
     st.markdown(decision_card, unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
-    # 🎯 أفضل نشاط مقترح (لو ما حدد)
+    # 🎯 أفضل نشاط مقترح (لو ما حدد) - مع كيمياء العائلة
     # ═══════════════════════════════════════════════════════
     if not a.get('target_cat') and a.get('best_activities'):
         top_act = a['best_activities'][0]
         reasons_text = " • ".join(top_act['reasons'])
+        final_score = top_act.get('final_opportunity', top_act['opportunity_score'])
+        harmony = top_act.get('harmony_score', 0)
+        harmony_color = top_act.get('harmony_color', '#94a3b8')
+        harmony_level = top_act.get('harmony_level', '-')
+        synergies = top_act.get('synergies', [])
+        
+        # عرض الترابطات القوية
+        synergies_html = ""
+        if synergies:
+            synergies_html = '<div style="margin-top:14px; padding:12px; background:rgba(16,185,129,0.06); border-radius:10px; border-right:3px solid #10b981;">'
+            synergies_html += '<div style="color:#86efac; font-size:12px; font-weight:600; margin-bottom:8px;">🧪 ترابطات قوية مع المحيط:</div>'
+            for syn in synergies[:3]:
+                synergies_html += f'<div style="color:#cbd5e1; font-size:12px; padding:3px 0;">✓ {syn["icon"]} {syn["name"]} ({syn["count"]} محل) — <span style="color:#94a3b8;">{syn["reason"]}</span></div>'
+            synergies_html += '</div>'
+        
         st.markdown(f"""<div style="background: linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(139,92,246,0.08) 100%);
             border: 2px solid #a855f7; border-radius: 18px; padding: 22px; margin-bottom: 18px;">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
@@ -2550,15 +3218,17 @@ else:
                         <span>📊 الطلب: <b style="color:#10b981;">{top_act['demand']}%</b></span>
                         <span>🏪 منافسين: <b>{top_act['existing']}</b></span>
                         <span>📈 تشبع: <b>{top_act['saturation']}%</b></span>
+                        <span>🧪 الانسجام: <b style="color:{harmony_color};">{harmony}% ({harmony_level})</b></span>
                     </div>
                 </div>
                 <div style="background:rgba(16,185,129,0.2); color:#10b981; padding:14px 22px; border-radius:14px; text-align:center; min-width:120px;">
-                    <div style="font-size:11px; opacity:0.8;">درجة الفرصة</div>
-                    <div style="font-size:36px; font-weight:900; line-height:1;">{top_act['opportunity_score']}<span style="font-size:18px;">%</span></div>
+                    <div style="font-size:11px; opacity:0.8;">الفرصة النهائية</div>
+                    <div style="font-size:36px; font-weight:900; line-height:1;">{final_score}<span style="font-size:18px;">%</span></div>
                 </div>
             </div>
+            {synergies_html}
             <div style="margin-top:14px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08); color:#94a3b8; font-size:12px;">
-                ⚠️ اقتراح مبدئي - غياب نشاط لا يعني بالضرورة وجود طلب فعلي.
+                ⚠️ اقتراح مبني على تحليل ترابطات مع المحيط - يحتاج تحقق ميداني قبل القرار.
             </div>
             </div>""", unsafe_allow_html=True)
 
@@ -2674,42 +3344,114 @@ else:
         """, unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
-    # ✅ أفضل الأنشطة المقترحة + ❌ أسوأها
+    # 🧪 كيمياء العائلة - تحليل الانسجام مع المحيط
+    # ═══════════════════════════════════════════════════════
+    if a.get('best_activities'):
+        # نحدد العائلة الغالبة من أول نشاط
+        top_act_for_family = a['best_activities'][0]
+        dom_fam = top_act_for_family.get('dominant_family')
+        
+        st.markdown('<div class="section-title">🧪 كيمياء العائلة - تحليل الانسجام مع المحيط</div>',
+                    unsafe_allow_html=True)
+        
+        # شريط توضيح
+        st.markdown(f"""<div style="background:linear-gradient(135deg, rgba(168,85,247,0.10) 0%, #131826 100%); 
+            border:1px solid rgba(168,85,247,0.3); border-radius:14px; padding:16px; margin-bottom:14px;">
+            <div style="color:#c4b5fd; font-size:14px; font-weight:600; margin-bottom:6px;">
+                💡 ما هي كيمياء العائلة؟
+            </div>
+            <div style="color:#cbd5e1; font-size:13px; line-height:1.7;">
+                تحليل مدى انسجام كل نشاط مع المحلات الموجودة - مبني على نظريات Co-Tenancy و Trip Chaining.
+                مثال: مغسلة سيارات تنسجم مع المقاهي (الانتظار) والوقود (خدمة شاملة).
+                <b style="color:#86efac;">كل نشاط مقترح له ترابطات حقيقية مع المحيط.</b>
+            </div>
+        </div>""", unsafe_allow_html=True)
+        
+        # العائلة الغالبة
+        if dom_fam:
+            st.markdown(f"""<div style="background:rgba(59,130,246,0.08); border-right:4px solid #3b82f6; 
+                padding:14px 18px; border-radius:10px; margin-bottom:14px;">
+                <div style="color:#93c5fd; font-size:13px; font-weight:600;">🏆 العائلة التجارية الغالبة في المنطقة</div>
+                <div style="color:white; font-size:20px; font-weight:800; margin-top:6px;">
+                    {dom_fam['icon']} {dom_fam['name']} <span style="color:#94a3b8; font-size:14px; font-weight:400;">({dom_fam['count']} محل)</span>
+                </div>
+                <div style="color:#94a3b8; font-size:12px; margin-top:6px;">
+                    💡 الأنشطة المنسجمة مع هذه العائلة لها فرصة أعلى للنجاح
+                </div>
+            </div>""", unsafe_allow_html=True)
+        
+        # توضيح كيف تتغير النتيجة
+        with st.expander("🔬 كيف يؤثر الانسجام على ترتيب الأنشطة؟"):
+            st.markdown("""
+            **المعادلة:**
+            ```
+            الفرصة النهائية = (الفرصة الأصلية × 40%) + (الانسجام × 60%)
+            ```
+            
+            **تعديلات إضافية:**
+            - **لا توجد ترابطات قوية** → خصم 15 نقطة (يمنع اقتراح "إلكترونيات في منطقة مطاعم")
+            - **3+ ترابطات قوية** → بونص 5 نقاط
+            - **ينتمي للعائلة الغالبة** → بونص 3 نقاط
+            
+            **مستويات الانسجام:**
+            - 🟢 **70-100%:** انسجام ممتاز - ترابطات قوية متعددة
+            - 🟡 **50-69%:** انسجام جيد - ترابطات ملحوظة
+            - 🟠 **30-49%:** انسجام متوسط - بعض الترابطات
+            - 🔴 **15-29%:** انسجام ضعيف - ترابطات محدودة
+            - ⚫ **0-14%:** غريب عن المحيط - يحتاج جذب جمهور خاص
+            
+            **المصادر النظرية:**
+            - Retail Agglomeration Theory
+            - Co-Tenancy Effect (Brown 1987, Konishi 2005)
+            - Trip Chaining Behavior
+            - Central Place Theory
+            """)
+    
+    # ═══════════════════════════════════════════════════════
+    # ✅ أفضل الأنشطة المقترحة + ❌ أسوأها (مدعومة بكيمياء العائلة)
     # ═══════════════════════════════════════════════════════
     col_best, col_worst = st.columns(2)
     
     with col_best:
         st.markdown('<div class="section-title">✅ أفضل الأنشطة المقترحة</div>', unsafe_allow_html=True)
-        st.caption("⚠️ اقتراحات مبدئية - تحتاج تحقق ميداني")
+        st.caption("🧪 مدعومة بتحليل كيمياء العائلة - الانسجام مع المحيط")
         for i, act in enumerate(a.get('best_activities', [])[:5], 1):
             reasons = " • ".join(act['reasons'])
-            score_class = "" if act['opportunity_score'] >= 60 else "warn" if act['opportunity_score'] >= 35 else "bad"
+            final_score = act.get('final_opportunity', act['opportunity_score'])
+            harmony = act.get('harmony_score', 0)
+            harmony_color = act.get('harmony_color', '#94a3b8')
+            score_class = "" if final_score >= 60 else "warn" if final_score >= 35 else "bad"
             st.markdown(f"""<div class="activity-rank-card">
                 <div class="rank-number">{i}</div>
                 <div class="rank-content">
                     <div class="rank-name">{act['icon']} {act['cat_name']}</div>
                     <div class="rank-reason">💡 {reasons}<br>
-                        <span style="color:#64748b;">طلب: {act['demand']}% | منافسين: {act['existing']} | إشباع: {act['saturation']}%</span>
+                        <span style="color:#64748b;">طلب: {act['demand']}% | منافسين: {act['existing']} | إشباع: {act['saturation']}% | 
+                        <span style="color:{harmony_color};">🧪 انسجام: {harmony}%</span></span>
                     </div>
                 </div>
-                <div class="rank-score-pill {score_class}">{act['opportunity_score']}%</div>
+                <div class="rank-score-pill {score_class}">{final_score}%</div>
             </div>""", unsafe_allow_html=True)
 
     with col_worst:
         st.markdown('<div class="section-title">❌ أنشطة يُنصح بتجنبها</div>', unsafe_allow_html=True)
         if a.get('worst_activities'):
-            st.caption("الأنشطة الأقل فرصة في هذا الموقع")
+            st.caption("غير منسجمة مع المحيط أو السوق مشبع")
             for act in a['worst_activities']:
                 reasons = " • ".join(act['reasons'])
+                final_score = act.get('final_opportunity', act['opportunity_score'])
+                harmony = act.get('harmony_score', 0)
+                harmony_color = act.get('harmony_color', '#94a3b8')
                 st.markdown(f"""<div class="activity-rank-card" style="border-color:rgba(239,68,68,0.3);">
                     <div class="rank-number" style="color:#ef4444;">✗</div>
                     <div class="rank-content">
                         <div class="rank-name">{act['icon']} {act['cat_name']}</div>
                         <div class="rank-reason">⚠️ {reasons}<br>
-                            <span style="color:#64748b;">منافسين: {act['existing']} | إشباع: {act['saturation']}%</span>
+                            <span style="color:#64748b;">منافسين: {act['existing']} | إشباع: {act['saturation']}% | 
+                            <span style="color:{harmony_color};">🧪 انسجام: {harmony}%</span></span>
                         </div>
                     </div>
-                    <div class="rank-score-pill bad">{act['opportunity_score']}%</div>
+                    <div class="rank-score-pill bad">{final_score}%</div>
                 </div>""", unsafe_allow_html=True)
         else:
             st.info("لا توجد أنشطة بفرصة منخفضة جداً - كل الأنشطة لها إمكانات")
