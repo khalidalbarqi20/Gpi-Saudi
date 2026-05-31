@@ -1,11 +1,20 @@
 """
-GBI - تحليل المواقع التجارية (نسخة محسّنة v2)
-- محرك Mapbox شغّال + تصميم احترافي
-- ميزات جديدة: قرار نهائي، مؤشرات Opportunity/Saturation/Demand، DNA الحي،
-  لماذا اقترحنا، أسوأ الأنشطة، مؤشر الثقة، تحليل مالي، تحليل صور، مواقف وذروة
-ملف مستقل واحد
+GBI - تحليل المواقع التجارية v3
+الإصلاحات:
+- خفض الثقة لمستوى واقعي
+- حذف كثافة الذروة المخمّنة
+- حذف "السكان المقدّرون" المخمّن
+- حذف مقارنة المدن
+- إصلاح التناقض المنطقي
+- تحذير شفاف في رأس التقرير
+- بيانات سكان حقيقية للمحافظات السعودية (GASTAT 2022)
+- نموذج تفاعلي لإدخال البيانات الميدانية
+- منطق تحليل ذكي للمدخلات
 """
 
+# ============================================================================
+# [الدفعة 1] الاستيراد والإعدادات
+# ============================================================================
 import os
 import re
 import json
@@ -19,9 +28,6 @@ from streamlit_folium import st_folium
 import plotly.graph_objects as go
 from PIL import Image
 
-# ============================================================
-# Configuration
-# ============================================================
 load_dotenv()
 
 
@@ -57,11 +63,12 @@ st.set_page_config(
     menu_items={'Get Help': None, 'Report a bug': None, 'About': None}
 )
 
-# ============================================================
-# الفئات (موسّعة - 30+ فئة من Mapbox canonical IDs)
-# ============================================================
+
+# ============================================================================
+# [الدفعة 1] الفئات (33 فئة من Mapbox canonical IDs)
+# ============================================================================
 CATEGORIES = {
-    # طعام ومشروبات
+    # طعام
     "restaurant": {"name": "مطاعم", "icon": "🍽️", "color": "#ef4444", "group": "طعام"},
     "cafe": {"name": "مقاهي", "icon": "☕", "color": "#f59e0b", "group": "طعام"},
     "fast_food": {"name": "وجبات سريعة", "icon": "🍔", "color": "#dc2626", "group": "طعام"},
@@ -106,48 +113,251 @@ CATEGORIES = {
     "mosque": {"name": "مساجد", "icon": "🕌", "color": "#65a30d", "group": "ديني"},
 }
 
-# الأنشطة المعروضة في القائمة المنسدلة (أسماء عربية واضحة → فئة Mapbox)
 ACTIVITY_TYPES = {
-    # طعام
     "مطعم": "restaurant",
     "مقهى / كافيه": "cafe",
     "وجبات سريعة": "fast_food",
-    # تسوق
     "محل تسوق عام": "shopping",
     "محل ملابس": "clothing_store",
     "محل إلكترونيات": "electronics_store",
     "محل منزلي / أثاث": "home_garden",
     "محل رياضي": "sporting_goods",
-    # خدمات
     "صيدلية": "pharmacy",
     "بقالة / سوبر ماركت": "grocery",
     "محطة وقود": "fuel",
     "خدمات عامة": "services",
-    # سيارات
     "صيانة سيارات": "auto_repair",
     "مغسلة سيارات": "car_wash",
     "معرض سيارات": "car_dealer",
     "تأجير سيارات": "car_rental",
     "محطة شحن كهربائي": "ev_charging_station",
-    # صحة وتجميل
     "مستشفى / مجمع طبي": "hospital",
     "عيادة": "clinic",
     "صالون تجميل / حلاقة": "beauty_salon",
-    # ترفيه
     "نادي رياضي / جيم": "fitness_center",
     "سينما": "cinema",
-    # مالية
     "بنك / صرّاف": "bank",
-    # سفر
     "فندق / شقق فندقية": "hotel",
 }
 
-# متوسطات تقديرية للسعودية (لمقارنة المدينة)
-SA_AVG_PLACES_PER_KM = 30  # متوسط محلات في كم2 للمدن المتوسطة
 
-# ============================================================
-# CSS
-# ============================================================
+# ============================================================================
+# [الدفعة 1] بيانات السكان للمحافظات السعودية (GASTAT 2022 + مصادر موثقة)
+# ============================================================================
+# المصدر: تعداد 2022 - الهيئة العامة للإحصاء + Wikipedia (citypopulation.de)
+# البنية: اسم المحافظة بالعربية والإنجليزية -> {السكان, المساحة كم², المنطقة, lat تقريبي, lng تقريبي}
+SAUDI_GOVERNORATES = {
+    # ========== منطقة الرياض ==========
+    "الرياض": {"pop": 7009100, "area": 1913, "region": "الرياض", "lat": 24.7136, "lng": 46.6753, "aliases": ["Riyadh", "ar-Riyad", "الرياض"]},
+    "الدرعية": {"pop": 75571, "area": 4500, "region": "الرياض", "lat": 24.7339, "lng": 46.5750, "aliases": ["Diriyah", "Ad-Diriyah", "Dir'iyah"]},
+    "الخرج": {"pop": 425300, "area": 19790, "region": "الرياض", "lat": 24.1556, "lng": 47.3120, "aliases": ["Al-Kharj", "Kharj"]},
+    "الدوادمي": {"pop": 456684, "area": 27740, "region": "الرياض", "lat": 24.5070, "lng": 44.3927, "aliases": ["Al-Dawadmi", "Dawadmi"]},
+    "المجمعة": {"pop": 80300, "area": 30000, "region": "الرياض", "lat": 25.9077, "lng": 45.3667, "aliases": ["Al-Majma'ah", "Majmaah"]},
+    "القويعية": {"pop": 100000, "area": 33000, "region": "الرياض", "lat": 24.0830, "lng": 45.2700, "aliases": ["Al-Quwaiiyah", "Quwaiiyah"]},
+    "وادي الدواسر": {"pop": 117000, "area": 56000, "region": "الرياض", "lat": 20.4500, "lng": 44.8000, "aliases": ["Wadi ad-Dawasir", "Dawasir"]},
+    "الأفلاج": {"pop": 75000, "area": 54000, "region": "الرياض", "lat": 22.2700, "lng": 46.7333, "aliases": ["Al-Aflaj", "Aflaj"]},
+    "الزلفي": {"pop": 79000, "area": 4500, "region": "الرياض", "lat": 26.3000, "lng": 44.8167, "aliases": ["Az-Zulfi", "Zulfi"]},
+    "شقراء": {"pop": 50000, "area": 7500, "region": "الرياض", "lat": 25.2517, "lng": 45.2520, "aliases": ["Shaqra", "Shaqraa"]},
+    "حوطة بني تميم": {"pop": 35000, "area": 2500, "region": "الرياض", "lat": 23.5167, "lng": 46.8500, "aliases": ["Hawtat Bani Tamim"]},
+    "عفيف": {"pop": 78000, "area": 12300, "region": "الرياض", "lat": 23.9080, "lng": 42.9170, "aliases": ["Afif"]},
+    "حريملاء": {"pop": 27000, "area": 1500, "region": "الرياض", "lat": 25.1167, "lng": 46.1167, "aliases": ["Huraymila"]},
+    "ضرما": {"pop": 35000, "area": 4400, "region": "الرياض", "lat": 24.6167, "lng": 46.2167, "aliases": ["Dhurma"]},
+    "المزاحمية": {"pop": 50000, "area": 1700, "region": "الرياض", "lat": 24.4667, "lng": 46.2500, "aliases": ["Al-Muzahimiyah"]},
+    "ثادق": {"pop": 18000, "area": 3500, "region": "الرياض", "lat": 25.2900, "lng": 45.8600, "aliases": ["Thadiq"]},
+    "رماح": {"pop": 22000, "area": 22000, "region": "الرياض", "lat": 25.5667, "lng": 47.1500, "aliases": ["Rumah"]},
+    "السليل": {"pop": 38000, "area": 35000, "region": "الرياض", "lat": 20.4667, "lng": 45.5667, "aliases": ["As-Sulayyil"]},
+    "الحريق": {"pop": 14000, "area": 3000, "region": "الرياض", "lat": 23.6167, "lng": 46.4833, "aliases": ["Al-Hariq"]},
+    "الغاط": {"pop": 14000, "area": 3700, "region": "الرياض", "lat": 26.0167, "lng": 44.9833, "aliases": ["Al-Ghat"]},
+    # ========== منطقة مكة المكرمة ==========
+    "مكة المكرمة": {"pop": 2427924, "area": 3852, "region": "مكة", "lat": 21.4225, "lng": 39.8262, "aliases": ["Mecca", "Makkah", "Makkah al-Mukarramah"]},
+    "جدة": {"pop": 3751700, "area": 5460, "region": "مكة", "lat": 21.4858, "lng": 39.1925, "aliases": ["Jeddah", "Jiddah"]},
+    "الطائف": {"pop": 913400, "area": 13800, "region": "مكة", "lat": 21.2840, "lng": 40.4030, "aliases": ["Taif", "At-Ta'if"]},
+    "القنفذة": {"pop": 272000, "area": 12500, "region": "مكة", "lat": 19.1268, "lng": 41.0876, "aliases": ["Al-Qunfudhah", "Qunfudhah"]},
+    "الليث": {"pop": 200000, "area": 24500, "region": "مكة", "lat": 20.1450, "lng": 40.2810, "aliases": ["Al-Lith", "Lith"]},
+    "رابغ": {"pop": 175000, "area": 17000, "region": "مكة", "lat": 22.7989, "lng": 39.0353, "aliases": ["Rabigh"]},
+    "خليص": {"pop": 78000, "area": 8500, "region": "مكة", "lat": 22.1500, "lng": 39.3167, "aliases": ["Khulays"]},
+    "الكامل": {"pop": 33000, "area": 3500, "region": "مكة", "lat": 22.2500, "lng": 39.6500, "aliases": ["Al-Kamil"]},
+    "الجموم": {"pop": 78000, "area": 5000, "region": "مكة", "lat": 21.6167, "lng": 39.6833, "aliases": ["Al-Jumum"]},
+    "ميسان": {"pop": 30000, "area": 4500, "region": "مكة", "lat": 21.0000, "lng": 40.7000, "aliases": ["Maysan"]},
+    "أضم": {"pop": 18000, "area": 3500, "region": "مكة", "lat": 20.1167, "lng": 41.1833, "aliases": ["Adham"]},
+    "تربة": {"pop": 32000, "area": 6500, "region": "مكة", "lat": 21.2167, "lng": 41.6333, "aliases": ["Turabah"]},
+    "رنية": {"pop": 32000, "area": 12000, "region": "مكة", "lat": 21.2667, "lng": 42.8500, "aliases": ["Raniyah"]},
+    "الخرمة": {"pop": 32000, "area": 11000, "region": "مكة", "lat": 21.9333, "lng": 42.0500, "aliases": ["Al-Khurma", "Khurmah"]},
+    # ========== المنطقة الشرقية ==========
+    "الدمام": {"pop": 1532300, "area": 800, "region": "الشرقية", "lat": 26.4207, "lng": 50.0888, "aliases": ["Dammam", "Ad-Dammam"]},
+    "الأحساء": {"pop": 1104267, "area": 379000, "region": "الشرقية", "lat": 25.3833, "lng": 49.5833, "aliases": ["Al-Ahsa", "Hofuf"]},
+    "الخبر": {"pop": 658550, "area": 750, "region": "الشرقية", "lat": 26.2172, "lng": 50.1971, "aliases": ["Khobar", "Al-Khobar"]},
+    "القطيف": {"pop": 552442, "area": 1200, "region": "الشرقية", "lat": 26.5650, "lng": 50.0078, "aliases": ["Qatif", "Al-Qatif"]},
+    "الجبيل": {"pop": 505162, "area": 1016, "region": "الشرقية", "lat": 27.0046, "lng": 49.6594, "aliases": ["Jubail", "Al-Jubail"]},
+    "حفر الباطن": {"pop": 467007, "area": 137600, "region": "الشرقية", "lat": 28.4337, "lng": 45.9601, "aliases": ["Hafar al-Batin"]},
+    "الخفجي": {"pop": 84316, "area": 1500, "region": "الشرقية", "lat": 28.4326, "lng": 48.4914, "aliases": ["Khafji", "Al-Khafji"]},
+    "رأس تنورة": {"pop": 62314, "area": 800, "region": "الشرقية", "lat": 26.6443, "lng": 50.1599, "aliases": ["Ras Tanura"]},
+    "النعيرية": {"pop": 52340, "area": 87000, "region": "الشرقية", "lat": 27.4836, "lng": 48.4836, "aliases": ["Nariyah", "An-Nariyah"]},
+    "بقيق": {"pop": 45032, "area": 6000, "region": "الشرقية", "lat": 25.9333, "lng": 49.6667, "aliases": ["Abqaiq", "Buqayq"]},
+    "قرية العليا": {"pop": 24634, "area": 4500, "region": "الشرقية", "lat": 27.6500, "lng": 47.5333, "aliases": ["Qaryat al-Ulya"]},
+    # ========== منطقة المدينة المنورة ==========
+    "المدينة المنورة": {"pop": 1477000, "area": 173000, "region": "المدينة", "lat": 24.5247, "lng": 39.5692, "aliases": ["Medina", "Madinah", "Al-Madinah"]},
+    "ينبع": {"pop": 359631, "area": 30000, "region": "المدينة", "lat": 24.0890, "lng": 38.0618, "aliases": ["Yanbu"]},
+    "العلا": {"pop": 60103, "area": 22500, "region": "المدينة", "lat": 26.6311, "lng": 37.9220, "aliases": ["Al-Ula", "AlUla"]},
+    "بدر": {"pop": 58259, "area": 9500, "region": "المدينة", "lat": 23.7833, "lng": 38.7833, "aliases": ["Badr"]},
+    "المهد": {"pop": 48590, "area": 7300, "region": "المدينة", "lat": 23.4861, "lng": 40.8989, "aliases": ["Mahd", "Mahd ad-Dhahab"]},
+    "خيبر": {"pop": 45532, "area": 17000, "region": "المدينة", "lat": 25.7029, "lng": 39.2924, "aliases": ["Khaybar"]},
+    "الحناكية": {"pop": 43256, "area": 17500, "region": "المدينة", "lat": 24.9000, "lng": 40.5000, "aliases": ["Al-Hunakiyah"]},
+    "وادي الفرع": {"pop": 23120, "area": 6800, "region": "المدينة", "lat": 23.6000, "lng": 39.6000, "aliases": ["Wadi al-Fara"]},
+    # ========== منطقة عسير ==========
+    "أبها": {"pop": 1093705, "area": 80000, "region": "عسير", "lat": 18.2164, "lng": 42.5053, "aliases": ["Abha"]},
+    "خميس مشيط": {"pop": 666700, "area": 5300, "region": "عسير", "lat": 18.3000, "lng": 42.7333, "aliases": ["Khamis Mushait", "Khamis Mushayt"]},
+    "بيشة": {"pop": 250000, "area": 36500, "region": "عسير", "lat": 19.9744, "lng": 42.5908, "aliases": ["Bisha"]},
+    "محايل": {"pop": 192000, "area": 5500, "region": "عسير", "lat": 18.5500, "lng": 42.0500, "aliases": ["Mahayel", "Muhayil"]},
+    "أحد رفيدة": {"pop": 102000, "area": 4500, "region": "عسير", "lat": 18.2333, "lng": 42.8500, "aliases": ["Ahad Rufaydah"]},
+    "ظهران الجنوب": {"pop": 65000, "area": 5500, "region": "عسير", "lat": 17.6833, "lng": 43.5167, "aliases": ["Dhahran al-Janub"]},
+    "النماص": {"pop": 60000, "area": 2200, "region": "عسير", "lat": 19.1500, "lng": 42.1167, "aliases": ["An-Namas"]},
+    "تثليث": {"pop": 53224, "area": 10000, "region": "عسير", "lat": 19.5667, "lng": 43.3000, "aliases": ["Tathlith"]},
+    "بارق": {"pop": 75432, "area": 6650, "region": "عسير", "lat": 18.9358, "lng": 41.9358, "aliases": ["Bariq", "Bareq"]},
+    "بلقرن": {"pop": 70000, "area": 5500, "region": "عسير", "lat": 19.7833, "lng": 41.6167, "aliases": ["Balqarn"]},
+    "تنومة": {"pop": 40000, "area": 1800, "region": "عسير", "lat": 19.7500, "lng": 42.1500, "aliases": ["Tanumah"]},
+    "رجال ألمع": {"pop": 41000, "area": 1800, "region": "عسير", "lat": 18.2167, "lng": 42.2000, "aliases": ["Rijal Alma"]},
+    "سراة عبيدة": {"pop": 65000, "area": 4500, "region": "عسير", "lat": 18.1167, "lng": 42.6667, "aliases": ["Sarat Abidah"]},
+    "المجاردة": {"pop": 45000, "area": 5500, "region": "عسير", "lat": 19.1167, "lng": 41.9000, "aliases": ["Al-Majardah"]},
+    "البرك": {"pop": 22000, "area": 1500, "region": "عسير", "lat": 18.2167, "lng": 41.5333, "aliases": ["Al-Birk"]},
+    # ========== منطقة جازان ==========
+    "جازان": {"pop": 200911, "area": 1500, "region": "جازان", "lat": 16.8892, "lng": 42.5511, "aliases": ["Jazan", "Jizan"]},
+    "صبيا": {"pop": 235000, "area": 3500, "region": "جازان", "lat": 17.1500, "lng": 42.6167, "aliases": ["Sabya"]},
+    "أبو عريش": {"pop": 187060, "area": 1500, "region": "جازان", "lat": 16.9667, "lng": 42.8333, "aliases": ["Abu Arish"]},
+    "صامطة": {"pop": 160000, "area": 1200, "region": "جازان", "lat": 16.6000, "lng": 42.9333, "aliases": ["Samtah"]},
+    "أحد المسارحة": {"pop": 70000, "area": 800, "region": "جازان", "lat": 16.7167, "lng": 43.0167, "aliases": ["Ahad Al-Masarihah"]},
+    "بيش": {"pop": 92000, "area": 1500, "region": "جازان", "lat": 17.3833, "lng": 42.6000, "aliases": ["Baish"]},
+    "ضمد": {"pop": 75000, "area": 800, "region": "جازان", "lat": 16.9333, "lng": 42.7500, "aliases": ["Damad"]},
+    "فرسان": {"pop": 18000, "area": 700, "region": "جازان", "lat": 16.7100, "lng": 42.1166, "aliases": ["Farasan"]},
+    "العارضة": {"pop": 60000, "area": 1500, "region": "جازان", "lat": 16.7333, "lng": 43.0167, "aliases": ["Al-Aridah"]},
+    "العيدابي": {"pop": 50000, "area": 900, "region": "جازان", "lat": 17.2167, "lng": 43.0000, "aliases": ["Al-Aydabi"]},
+    "هروب": {"pop": 25000, "area": 600, "region": "جازان", "lat": 16.7833, "lng": 43.1000, "aliases": ["Harub"]},
+    "الدائر": {"pop": 58320, "area": 1500, "region": "جازان", "lat": 17.3000, "lng": 43.1833, "aliases": ["Al-Dayer"]},
+    "الريث": {"pop": 25000, "area": 1500, "region": "جازان", "lat": 17.2000, "lng": 43.0500, "aliases": ["Ar-Reeth"]},
+    # ========== منطقة القصيم ==========
+    "بريدة": {"pop": 745353, "area": 22500, "region": "القصيم", "lat": 26.3260, "lng": 43.9750, "aliases": ["Buraidah", "Buraydah"]},
+    "عنيزة": {"pop": 200000, "area": 4500, "region": "القصيم", "lat": 26.0848, "lng": 43.9869, "aliases": ["Unayzah"]},
+    "الرس": {"pop": 133482, "area": 11500, "region": "القصيم", "lat": 25.8721, "lng": 43.4977, "aliases": ["Ar-Rass", "Al-Rass"]},
+    "المذنب": {"pop": 50000, "area": 4500, "region": "القصيم", "lat": 25.8625, "lng": 44.2231, "aliases": ["Al-Mithnab"]},
+    "البكيرية": {"pop": 70000, "area": 1500, "region": "القصيم", "lat": 26.1399, "lng": 43.6601, "aliases": ["Al-Bukayriyah"]},
+    "البدائع": {"pop": 53000, "area": 4500, "region": "القصيم", "lat": 26.0000, "lng": 43.8000, "aliases": ["Al-Bada'i"]},
+    "رياض الخبراء": {"pop": 31203, "area": 1707, "region": "القصيم", "lat": 26.5333, "lng": 43.5500, "aliases": ["Riyadh Al Khabra"]},
+    "الأسياح": {"pop": 25000, "area": 4500, "region": "القصيم", "lat": 26.4667, "lng": 43.2333, "aliases": ["Al-Asyah"]},
+    "النبهانية": {"pop": 16000, "area": 3500, "region": "القصيم", "lat": 25.4833, "lng": 41.5167, "aliases": ["An-Nabhaniyah"]},
+    "الشماسية": {"pop": 15000, "area": 1500, "region": "القصيم", "lat": 26.5167, "lng": 43.8333, "aliases": ["Ash-Shamasiyah"]},
+    "عيون الجواء": {"pop": 19000, "area": 1500, "region": "القصيم", "lat": 26.4500, "lng": 43.7000, "aliases": ["Uyun al-Jawa"]},
+    "ضرية": {"pop": 14000, "area": 5500, "region": "القصيم", "lat": 25.7167, "lng": 42.3500, "aliases": ["Dariyah"]},
+    # ========== منطقة تبوك ==========
+    "تبوك": {"pop": 803585, "area": 117000, "region": "تبوك", "lat": 28.3998, "lng": 36.5700, "aliases": ["Tabuk"]},
+    "أملج": {"pop": 69656, "area": 18000, "region": "تبوك", "lat": 25.0314, "lng": 37.2675, "aliases": ["Umluj"]},
+    "الوجه": {"pop": 49948, "area": 18000, "region": "تبوك", "lat": 26.2333, "lng": 36.4500, "aliases": ["Al-Wajh"]},
+    "ضباء": {"pop": 54917, "area": 14000, "region": "تبوك", "lat": 27.3500, "lng": 35.7000, "aliases": ["Duba"]},
+    "تيماء": {"pop": 42164, "area": 3500, "region": "تبوك", "lat": 27.6310, "lng": 38.5527, "aliases": ["Tayma"]},
+    "حقل": {"pop": 27712, "area": 2500, "region": "تبوك", "lat": 29.2876, "lng": 34.9419, "aliases": ["Haql"]},
+    "البدع": {"pop": 17973, "area": 5500, "region": "تبوك", "lat": 28.5000, "lng": 35.0833, "aliases": ["Al-Bad"]},
+    "نيوم": {"pop": 100000, "area": 26500, "region": "تبوك", "lat": 27.9667, "lng": 35.5333, "aliases": ["Neom", "NEOM"]},
+    # ========== منطقة حائل ==========
+    "حائل": {"pop": 412758, "area": 103887, "region": "حائل", "lat": 27.5114, "lng": 41.7208, "aliases": ["Hail", "Ha'il"]},
+    "بقعاء": {"pop": 56362, "area": 12000, "region": "حائل", "lat": 27.4667, "lng": 42.2333, "aliases": ["Baqaa"]},
+    "الشنان": {"pop": 29419, "area": 8500, "region": "حائل", "lat": 27.5500, "lng": 40.5167, "aliases": ["Shanan"]},
+    "الشملي": {"pop": 20946, "area": 11500, "region": "حائل", "lat": 27.0667, "lng": 40.6333, "aliases": ["Shamli"]},
+    "السميراء": {"pop": 19563, "area": 8500, "region": "حائل", "lat": 27.6333, "lng": 41.2333, "aliases": ["Sumairah"]},
+    "الغزالة": {"pop": 12767, "area": 4500, "region": "حائل", "lat": 26.7833, "lng": 41.3833, "aliases": ["Ghazalah"]},
+    "موقق": {"pop": 16835, "area": 5500, "region": "حائل", "lat": 27.6500, "lng": 39.8500, "aliases": ["Mawqaq"]},
+    "السليمي": {"pop": 17343, "area": 6500, "region": "حائل", "lat": 27.0167, "lng": 41.7333, "aliases": ["Sulaimi"]},
+    "حايط": {"pop": 74596, "area": 5500, "region": "حائل", "lat": 26.2333, "lng": 40.4167, "aliases": ["Hait"]},
+    # ========== منطقة الحدود الشمالية ==========
+    "عرعر": {"pop": 218000, "area": 27500, "region": "الحدود الشمالية", "lat": 30.9753, "lng": 41.0381, "aliases": ["Arar"]},
+    "رفحاء": {"pop": 84536, "area": 31500, "region": "الحدود الشمالية", "lat": 29.6320, "lng": 43.4940, "aliases": ["Rafha"]},
+    "طريف": {"pop": 66004, "area": 22000, "region": "الحدود الشمالية", "lat": 31.5278, "lng": 38.6634, "aliases": ["Turaif"]},
+    "العويقيلة": {"pop": 20318, "area": 23500, "region": "الحدود الشمالية", "lat": 30.3500, "lng": 42.3333, "aliases": ["Al-Uwayqilah"]},
+    # ========== منطقة الجوف ==========
+    "سكاكا": {"pop": 247549, "area": 33500, "region": "الجوف", "lat": 29.9697, "lng": 40.2064, "aliases": ["Sakaka"]},
+    "القريات": {"pop": 175547, "area": 50000, "region": "الجوف", "lat": 31.3325, "lng": 37.3431, "aliases": ["Al-Qurayyat"]},
+    "دومة الجندل": {"pop": 50000, "area": 3500, "region": "الجوف", "lat": 29.8128, "lng": 39.8717, "aliases": ["Dumat Al-Jandal"]},
+    "طبرجل": {"pop": 30000, "area": 2500, "region": "الجوف", "lat": 30.5036, "lng": 38.2089, "aliases": ["Tabarjal"]},
+    # ========== منطقة نجران ==========
+    "نجران": {"pop": 505652, "area": 75000, "region": "نجران", "lat": 17.4924, "lng": 44.1277, "aliases": ["Najran"]},
+    "شرورة": {"pop": 100199, "area": 75000, "region": "نجران", "lat": 17.4830, "lng": 47.1230, "aliases": ["Sharurah"]},
+    "حبونا": {"pop": 24823, "area": 4500, "region": "نجران", "lat": 17.5333, "lng": 44.5333, "aliases": ["Habona"]},
+    "ثار": {"pop": 13391, "area": 4500, "region": "نجران", "lat": 17.7000, "lng": 44.7000, "aliases": ["Thar"]},
+    "يدمة": {"pop": 16160, "area": 5500, "region": "نجران", "lat": 17.7500, "lng": 45.5500, "aliases": ["Yadamah"]},
+    "بدر الجنوب": {"pop": 7991, "area": 3500, "region": "نجران", "lat": 17.9333, "lng": 44.0833, "aliases": ["Badr Al-Janub"]},
+    "خباش": {"pop": 7834, "area": 2500, "region": "نجران", "lat": 17.8000, "lng": 44.7833, "aliases": ["Khubash"]},
+    # ========== منطقة الباحة ==========
+    "الباحة": {"pop": 100000, "area": 1000, "region": "الباحة", "lat": 20.0129, "lng": 41.4677, "aliases": ["Al-Bahah", "Baha"]},
+    "بلجرشي": {"pop": 75000, "area": 1200, "region": "الباحة", "lat": 19.8606, "lng": 41.5594, "aliases": ["Baljurashi"]},
+    "المندق": {"pop": 35000, "area": 800, "region": "الباحة", "lat": 20.1833, "lng": 41.2833, "aliases": ["Al-Mandaq"]},
+    "المخواة": {"pop": 95000, "area": 4500, "region": "الباحة", "lat": 19.7667, "lng": 41.4167, "aliases": ["Al-Mikhwah"]},
+    "قلوة": {"pop": 60000, "area": 2500, "region": "الباحة", "lat": 19.5667, "lng": 41.6833, "aliases": ["Qilwah"]},
+    "العقيق": {"pop": 45000, "area": 6500, "region": "الباحة", "lat": 20.2667, "lng": 41.6833, "aliases": ["Al-Aqiq"]},
+    "القرى": {"pop": 30000, "area": 700, "region": "الباحة", "lat": 20.0000, "lng": 41.4333, "aliases": ["Al-Qura"]},
+    "بني حسن": {"pop": 25000, "area": 800, "region": "الباحة", "lat": 20.1167, "lng": 41.5167, "aliases": ["Bani Hassan"]},
+    "غامد الزناد": {"pop": 22000, "area": 700, "region": "الباحة", "lat": 19.9667, "lng": 41.5667, "aliases": ["Ghamid Az-Zinad"]},
+}
+
+# المتوسطات على مستوى المنطقة الإدارية (13 منطقة) - استرجاع احتياطي
+SAUDI_REGIONS = {
+    "الرياض": {"pop": 8591748, "area": 380000, "lat": 24.7, "lng": 46.7},
+    "مكة": {"pop": 8557766, "area": 153128, "lat": 21.4, "lng": 39.8},
+    "الشرقية": {"pop": 5125254, "area": 540000, "lat": 26.4, "lng": 50.0},
+    "المدينة": {"pop": 2137983, "area": 150000, "lat": 24.5, "lng": 39.5},
+    "عسير": {"pop": 2211875, "area": 76693, "lat": 18.2, "lng": 42.5},
+    "جازان": {"pop": 1404997, "area": 13457, "lat": 16.9, "lng": 42.5},
+    "القصيم": {"pop": 1336179, "area": 58046, "lat": 26.3, "lng": 43.9},
+    "تبوك": {"pop": 886036, "area": 117000, "lat": 28.4, "lng": 36.6},
+    "حائل": {"pop": 711018, "area": 103887, "lat": 27.5, "lng": 41.7},
+    "نجران": {"pop": 592300, "area": 149511, "lat": 17.5, "lng": 44.1},
+    "الجوف": {"pop": 595822, "area": 100212, "lat": 29.8, "lng": 40.2},
+    "الباحة": {"pop": 487045, "area": 9921, "lat": 20.0, "lng": 41.5},
+    "الحدود الشمالية": {"pop": 388858, "area": 111797, "lat": 30.9, "lng": 41.0},
+}
+
+
+def find_governorate_by_coords(lat, lng):
+    """
+    يبحث عن أقرب محافظة من الإحداثيات.
+    يرجع dict فيه (name, data, distance_km, confidence)
+    confidence:
+      - 'high' لو ضمن نطاق <30 كم من مركز المحافظة
+      - 'medium' لو 30-80 كم
+      - 'low' لو 80-200 كم
+      - None لو لا توجد محافظة قريبة
+    """
+    if not lat or not lng:
+        return None
+    best = None
+    best_dist = float('inf')
+    for name, data in SAUDI_GOVERNORATES.items():
+        # حساب المسافة (haversine)
+        R = 6371
+        dlat = math.radians(data['lat'] - lat)
+        dlng = math.radians(data['lng'] - lng)
+        a = math.sin(dlat/2)**2 + math.cos(math.radians(lat)) * math.cos(math.radians(data['lat'])) * math.sin(dlng/2)**2
+        dist = R * 2 * math.asin(math.sqrt(a))
+        if dist < best_dist:
+            best_dist = dist
+            best = (name, data)
+    if not best:
+        return None
+    confidence = None
+    if best_dist <= 30:
+        confidence = 'high'
+    elif best_dist <= 80:
+        confidence = 'medium'
+    elif best_dist <= 200:
+        confidence = 'low'
+    if not confidence:
+        return None
+    return {
+        'name': best[0],
+        'data': best[1],
+        'distance_km': round(best_dist, 1),
+        'confidence': confidence,
+    }
+# ============================================================================
+# [الدفعة 2] CSS - التصميم الكامل
+# ============================================================================
 st.markdown("""
 <style>
     #MainMenu, header, footer, .stDeployButton {visibility: hidden !important; display: none !important;}
@@ -179,14 +389,31 @@ st.markdown("""
 
     div[data-testid="stTextInput"] input {background: #131826 !important; color: white !important; border: 1px solid #1f2937 !important; border-radius: 14px !important; padding: 16px 20px !important; font-size: 15px !important; height: 56px !important;}
     div[data-testid="stTextInput"] input:focus {border-color: #ef4444 !important; box-shadow: 0 0 0 3px rgba(239,68,68,0.15) !important;}
+    div[data-testid="stTextArea"] textarea {background: #131826 !important; color: white !important; border: 1px solid #1f2937 !important; border-radius: 12px !important;}
     div[data-testid="stSelectbox"] > div > div {background: #131826 !important; border: 1px solid #1f2937 !important; border-radius: 14px !important; min-height: 56px !important; color: white !important;}
     div[data-testid="stSelectbox"] svg {fill: white !important;}
     div[data-testid="stNumberInput"] input {background: #131826 !important; color: white !important; border: 1px solid #1f2937 !important; border-radius: 12px !important;}
-
+    div[data-testid="stRadio"] label {color: #cbd5e1 !important;}
+    
     .stButton button {background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important; color: white !important; border: none !important; padding: 14px 24px !important; border-radius: 14px !important; font-weight: 700 !important; font-size: 15px !important; width: 100% !important; height: 56px !important; box-shadow: 0 4px 16px rgba(239,68,68,0.3) !important;}
     .stButton button:hover {transform: translateY(-1px) !important; box-shadow: 0 6px 20px rgba(239,68,68,0.45) !important;}
 
-    /* القرار النهائي - أهم بطاقة */
+    /* تحذير الصدق الرئيسي */
+    .honesty-warning {
+        background: linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(245,158,11,0.05) 100%);
+        border: 2px solid rgba(245,158,11,0.4);
+        border-radius: 14px;
+        padding: 14px 18px;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .honesty-warning-icon {font-size: 24px;}
+    .honesty-warning-text {color: #fbbf24; font-size: 13px; line-height: 1.6; flex: 1;}
+    .honesty-warning-text b {color: #fde68a;}
+
+    /* القرار النهائي */
     .verdict-card {
         background: linear-gradient(135deg, #1a2238 0%, #131826 100%);
         border-radius: 22px;
@@ -195,12 +422,6 @@ st.markdown("""
         border: 2px solid;
         position: relative;
         overflow: hidden;
-    }
-    .verdict-card::before {
-        content: '';
-        position: absolute;
-        top: 0; right: 0; bottom: 0;
-        width: 6px;
     }
     .verdict-header {display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;}
     .verdict-emoji {font-size: 56px; line-height: 1;}
@@ -221,9 +442,7 @@ st.markdown("""
     .big-metric-sub {color: #64748b; font-size: 12px; margin-top: 8px;}
 
     .kpi-card {background: #131826; border: 1px solid #1f2937; border-radius: 18px; padding: 20px;}
-    .kpi-header {display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;}
     .kpi-title {color: #94a3b8; font-size: 13px; font-weight: 500;}
-    .kpi-icon {width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 22px;}
     .kpi-value {color: white; font-size: 26px; font-weight: 800; margin: 4px 0;}
     .kpi-value-sm {color: white; font-size: 20px; font-weight: 700; margin: 4px 0;}
     .kpi-sub {color: #64748b; font-size: 12px;}
@@ -268,8 +487,55 @@ st.markdown("""
 
     .quick-row {display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid #1f2937;}
     .quick-row:last-child {border-bottom: none;}
-    .quick-label {color: #94a3b8; font-size: 13px;}
-    .quick-value {color: white; font-size: 14px; font-weight: 600;}
+
+    /* بطاقة المحافظة */
+    .governorate-card {
+        background: linear-gradient(135deg, rgba(59,130,246,0.10) 0%, #131826 100%);
+        border: 1px solid rgba(59,130,246,0.3);
+        border-radius: 14px;
+        padding: 16px;
+        margin-bottom: 14px;
+    }
+    .gov-name {color: #93c5fd; font-size: 13px; font-weight: 600; margin-bottom: 4px;}
+    .gov-stats {display: flex; gap: 20px; flex-wrap: wrap; margin-top: 8px;}
+    .gov-stat-item {color: #cbd5e1; font-size: 13px;}
+    .gov-stat-item b {color: white; font-size: 16px;}
+
+    /* قسم البيانات الميدانية */
+    .field-section {
+        background: linear-gradient(135deg, rgba(168,85,247,0.08) 0%, #131826 100%);
+        border: 1px solid rgba(168,85,247,0.3);
+        border-radius: 18px;
+        padding: 20px;
+        margin: 16px 0;
+    }
+    .field-section-title {color: #c4b5fd; font-size: 18px; font-weight: 700; margin-bottom: 8px;}
+    .field-section-sub {color: #94a3b8; font-size: 13px; margin-bottom: 16px; line-height: 1.6;}
+
+    /* مؤشر اكتمال الدراسة */
+    .completion-bar {
+        background: #131826; border: 1px solid #1f2937; border-radius: 16px;
+        padding: 18px; margin-bottom: 16px;
+    }
+    .completion-title {color: white; font-size: 15px; font-weight: 700; margin-bottom: 12px;}
+    .completion-fill {
+        height: 10px; background: rgba(255,255,255,0.05); border-radius: 6px; overflow: hidden;
+    }
+    .completion-fill-inner {
+        height: 100%; border-radius: 6px;
+        background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%);
+    }
+
+    /* قسم "ما يحتاج تحقق" */
+    .needs-verification {
+        background: rgba(245,158,11,0.06);
+        border: 1px dashed rgba(245,158,11,0.4);
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin: 12px 0;
+    }
+    .needs-verification-title {color: #fbbf24; font-size: 14px; font-weight: 700; margin-bottom: 8px;}
+    .needs-verification ul {margin: 0; padding-right: 18px; color: #cbd5e1; font-size: 13px; line-height: 1.7;}
 
     div[data-testid="stExpander"] {background: #131826 !important; border: 1px solid #1f2937 !important; border-radius: 14px !important;}
     div[data-testid="stExpander"] summary {color: white !important; font-weight: 600 !important;}
@@ -296,9 +562,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================================
-# State
-# ============================================================
+
+# ============================================================================
+# [الدفعة 2] حالة الجلسة (Session State)
+# ============================================================================
 if 'analysis' not in st.session_state:
     st.session_state.analysis = None
 if 'chat' not in st.session_state:
@@ -309,12 +576,15 @@ if 'fin_inputs' not in st.session_state:
     st.session_state.fin_inputs = {}
 if 'uploaded_images' not in st.session_state:
     st.session_state.uploaded_images = []
-
-
-# ============================================================
-# المحرك (Mapbox)
-# ============================================================
+if 'field_inputs' not in st.session_state:
+    st.session_state.field_inputs = {}
+if 'custom_activity' not in st.session_state:
+    st.session_state.custom_activity = ""
+# ============================================================================
+# [الدفعة 3] محرك Mapbox والدوال الأساسية
+# ============================================================================
 def extract_coords(url):
+    """يستخرج إحداثيات من رابط Google Maps أو نص"""
     url = url.strip()
     direct = re.match(r'^\s*(-?\d+\.?\d+)\s*,\s*(-?\d+\.?\d+)\s*$', url)
     if direct:
@@ -325,7 +595,8 @@ def extract_coords(url):
             url = r.url
         except Exception:
             return None, None
-    for p in [r'@(-?\d+\.?\d*),(-?\d+\.?\d*)', r'place/(-?\d+\.?\d*),(-?\d+\.?\d*)', r'!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)', r'q=(-?\d+\.?\d*),(-?\d+\.?\d*)']:
+    for p in [r'@(-?\d+\.?\d*),(-?\d+\.?\d*)', r'place/(-?\d+\.?\d*),(-?\d+\.?\d*)',
+              r'!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)', r'q=(-?\d+\.?\d*),(-?\d+\.?\d*)']:
         m = re.search(p, url)
         if m:
             return float(m.group(1)), float(m.group(2))
@@ -333,6 +604,7 @@ def extract_coords(url):
 
 
 def dist_km(lat1, lng1, lat2, lng2):
+    """حساب المسافة بين نقطتين بالكيلومتر"""
     R = 6371
     dlat = math.radians(lat2 - lat1)
     dlng = math.radians(lng2 - lng1)
@@ -341,6 +613,7 @@ def dist_km(lat1, lng1, lat2, lng2):
 
 
 def search_mapbox(lat, lng, cat, limit=25):
+    """البحث عن محلات في فئة معينة عبر Mapbox Search Box API"""
     url = f"https://api.mapbox.com/search/searchbox/v1/category/{cat}"
     params = {"access_token": MAPBOX, "proximity": f"{lng},{lat}", "limit": limit, "language": "ar"}
     try:
@@ -353,6 +626,7 @@ def search_mapbox(lat, lng, cat, limit=25):
 
 
 def process(features, tlat, tlng, max_km):
+    """يفلتر النتائج حسب النطاق ويرجع قائمة مرتبة"""
     places = []
     seen = set()
     for f in features:
@@ -367,12 +641,14 @@ def process(features, tlat, tlng, max_km):
         if plat and plng:
             d = dist_km(tlat, tlng, plat, plng)
             if d <= max_km:
-                places.append({'name': name, 'addr': props.get('full_address', ''), 'dist': d, 'lat': plat, 'lng': plng})
+                places.append({'name': name, 'addr': props.get('full_address', ''),
+                               'dist': d, 'lat': plat, 'lng': plng})
     places.sort(key=lambda x: x['dist'])
     return places
 
 
 def comprehensive_scan(lat, lng, radius_km):
+    """فحص شامل لكل الفئات حول الموقع"""
     results = {}
     for cat in CATEGORIES:
         feats = search_mapbox(lat, lng, cat, 25)
@@ -382,35 +658,32 @@ def comprehensive_scan(lat, lng, radius_km):
     return results
 
 
-# ============================================================
-# DNA الحي - جديد
-# ============================================================
+# ============================================================================
+# [الدفعة 3] DNA الحي (تركيبة محتملة - مع تحذير)
+# ============================================================================
 def neighborhood_dna(pbc):
-    """تحليل ثقافة وطبيعة الحي بشكل متعدد الأبعاد"""
+    """مؤشر تركيبة الحي (تقديري - مبني على نوع المحلات)"""
     food = sum(len(pbc.get(k, [])) for k in ['restaurant', 'cafe', 'fast_food'])
-    shopping = len(pbc.get('shopping', []))
+    shopping = len(pbc.get('shopping', [])) + len(pbc.get('clothing_store', [])) + len(pbc.get('electronics_store', []))
     grocery = len(pbc.get('grocery', []))
     pharmacy = len(pbc.get('pharmacy', []))
-    services = len(pbc.get('services', []))
+    services = len(pbc.get('services', [])) + len(pbc.get('auto_repair', []))
     fuel = len(pbc.get('fuel', []))
     cafe = len(pbc.get('cafe', []))
     fast_food = len(pbc.get('fast_food', []))
     restaurant = len(pbc.get('restaurant', []))
+    fitness = len(pbc.get('fitness_center', []))
+    beauty = len(pbc.get('beauty_salon', []))
     total = sum(len(v) for v in pbc.values())
 
     if total == 0:
         return {'family': 0, 'youth': 0, 'commercial': 0, 'food': 0, 'service': 0, 'main': 'غير محدد'}
 
-    # نسب موزونة (كل نسبة تعكس مدى تواجد عوامل ذلك الطابع كنسبة من الإجمالي)
-    # عائلي: بقالة + صيدلية + مطاعم (طابع عائلي قوي)
+    # نسب موزونة
     family_raw = (grocery * 2.5 + pharmacy * 3.0 + restaurant * 1.5) / max(total, 1) * 35
-    # شبابي: كافيهات + وجبات سريعة + تسوق
-    youth_raw = (cafe * 2.5 + fast_food * 2.5 + shopping * 1.5) / max(total, 1) * 35
-    # تجاري: تسوق + خدمات + إجمالي عالي
+    youth_raw = (cafe * 2.5 + fast_food * 2.5 + shopping * 1.5 + fitness * 2.0 + beauty * 1.5) / max(total, 1) * 35
     commercial_raw = (shopping * 3.0 + services * 2.0) / max(total, 1) * 35 + min(35, total * 1.0)
-    # طعام: نسبة الطعام من الإجمالي
     food_raw = (food / max(total, 1)) * 100
-    # خدماتي: صيدليات + خدمات + وقود
     service_raw = (services * 2.0 + pharmacy * 2.0 + fuel * 2.5) / max(total, 1) * 35
 
     family = min(100, int(family_raw))
@@ -428,254 +701,212 @@ def neighborhood_dna(pbc):
     }
 
 
-# ============================================================
-# مقارنة مع متوسط المدينة - جديد
-# ============================================================
-def city_comparison(total_places, radius_km):
-    """مقارنة كثافة الموقع بمتوسط المدن السعودية"""
-    area_km2 = math.pi * (radius_km ** 2)
-    density = total_places / area_km2 if area_km2 > 0 else 0
-    expected = SA_AVG_PLACES_PER_KM
-    if density == 0:
-        return None
-    pct_diff = ((density - expected) / expected) * 100
-    if pct_diff > 50:
-        status = "أعلى بكثير من المتوسط"
-        color = "#10b981"
-    elif pct_diff > 15:
-        status = "أعلى من المتوسط"
-        color = "#3b82f6"
-    elif pct_diff > -15:
-        status = "قريب من المتوسط"
-        color = "#94a3b8"
-    elif pct_diff > -50:
-        status = "أقل من المتوسط"
-        color = "#f59e0b"
-    else:
-        status = "أقل بكثير"
-        color = "#ef4444"
-    return {
-        'density': round(density, 1),
-        'expected': expected,
-        'pct_diff': round(pct_diff, 0),
-        'status': status,
-        'color': color,
-    }
-
-
-# ============================================================
-# مؤشر الثقة - جديد
-# ============================================================
-def confidence_score(pbc, total_places, radius_km):
-    """مؤشر ثقة في التحليل بناءً على اكتمال البيانات"""
-    factors = []
-    # عدد المحلات (الأكثر = ثقة أعلى)
+# ============================================================================
+# [الدفعة 3] مؤشر الثقة - واقعي ومنخفض السقف
+# ============================================================================
+def confidence_score(pbc, total_places, radius_km, has_field_data=False, has_gov_data=False):
+    """
+    مؤشر ثقة واقعي للتحليل.
+    السقف الواقعي بدون بيانات إضافية: 55%
+    مع بيانات ميدانية: يرتفع إلى 70%
+    مع بيانات محافظة + ميدانية: 80% كحد أقصى
+    
+    لا توجد ثقة 100% بدون:
+    - بيانات تقييمات المنافسين (Google Maps)
+    - حركة عملاء فعلية (Foot traffic)
+    - بيانات إيجارات السوق
+    - استبيان ميداني
+    """
+    factors = {}
+    
+    # عدد المحلات (الأكثر = بيانات أوفر) - أقصى 15 نقطة
     if total_places >= 50:
-        factors.append(35)
+        factors['محلات'] = 15
     elif total_places >= 20:
-        factors.append(25)
+        factors['محلات'] = 12
     elif total_places >= 10:
-        factors.append(15)
+        factors['محلات'] = 8
     else:
-        factors.append(5)
-    # عدد الفئات النشطة
+        factors['محلات'] = 4
+    
+    # تنوع الفئات - أقصى 10 نقاط
     active = len(pbc)
-    if active >= 6:
-        factors.append(30)
-    elif active >= 4:
-        factors.append(22)
-    elif active >= 2:
-        factors.append(12)
+    if active >= 8:
+        factors['تنوع'] = 10
+    elif active >= 5:
+        factors['تنوع'] = 7
+    elif active >= 3:
+        factors['تنوع'] = 5
     else:
-        factors.append(5)
-    # حجم المنطقة (نطاق مناسب)
-    if 0.5 <= radius_km <= 3:
-        factors.append(20)
+        factors['تنوع'] = 2
+    
+    # حجم النطاق المناسب - أقصى 8 نقاط
+    if 1 <= radius_km <= 3:
+        factors['نطاق'] = 8
     elif radius_km <= 5:
-        factors.append(15)
+        factors['نطاق'] = 5
     else:
-        factors.append(10)
-    # تنوع الفئات (فيها مأكولات + خدمات أساسية)
-    has_food = any(k in pbc for k in ['restaurant', 'cafe', 'fast_food'])
-    has_essential = any(k in pbc for k in ['pharmacy', 'grocery'])
-    diversity = (10 if has_food else 0) + (5 if has_essential else 0)
-    factors.append(diversity)
-
-    score = sum(factors)
-    if score >= 80:
-        level = "عالية"
-        color = "#10b981"
-    elif score >= 55:
+        factors['نطاق'] = 3
+    
+    # بيانات سكان حقيقية (محافظة) - أقصى 12 نقطة
+    factors['سكان'] = 12 if has_gov_data else 0
+    
+    # بيانات ميدانية - أقصى 25 نقطة
+    factors['ميدانية'] = 25 if has_field_data else 0
+    
+    score = sum(factors.values())
+    # سقف نهائي 70% (لا نتعدى لأن البيانات الميدانية + السكان ليست بديل عن:
+    #   - تقييمات المنافسين الفعلية، حركة فعلية، إيجارات حقيقية)
+    score = min(score, 70)
+    
+    if score >= 55:
         level = "جيدة"
-        color = "#3b82f6"
-    elif score >= 30:
+        color = "#10b981"
+    elif score >= 35:
         level = "متوسطة"
         color = "#f59e0b"
+    elif score >= 20:
+        level = "محدودة"
+        color = "#f97316"
     else:
-        level = "منخفضة"
+        level = "ضعيفة"
         color = "#ef4444"
-    return {'score': score, 'level': level, 'color': color, 'factors': {
-        'محلات': factors[0], 'فئات': factors[1], 'نطاق': factors[2], 'تنوع': factors[3]
-    }}
-
-
-# ============================================================
-# تحليل المواقف والوصول والذروة
-# ============================================================
-def analyze_parking_and_access(pbc):
-    fuel_count = len(pbc.get('fuel', []))
-    shopping = len(pbc.get('shopping', []))
-    total = sum(len(v) for v in pbc.values())
-
-    if shopping >= 5 or fuel_count >= 2:
-        parking_status = "متوفرة بكثرة"
-        parking_score = 90
-        parking_detail = "وجود مراكز تسوق ومحطات وقود قريبة يدل على توفر مواقف عامة وخاصة"
-    elif shopping >= 2 or fuel_count >= 1:
-        parking_status = "متوفرة"
-        parking_score = 70
-        parking_detail = "مواقف متوفرة في المنطقة، يُفضل التحقق ميدانياً من السعة"
-    elif total >= 10:
-        parking_status = "محدودة"
-        parking_score = 50
-        parking_detail = "المنطقة تجارية لكن المواقف قد تكون محدودة في أوقات الذروة"
-    else:
-        parking_status = "غير مؤكدة"
-        parking_score = 35
-        parking_detail = "تحتاج زيارة ميدانية للتحقق من توفر المواقف"
-
-    if fuel_count >= 2 and total >= 20:
-        access_status = "ممتازة"
-        access_score = 95
-        access_detail = "محطات وقود متعددة + نشاط مرتفع = شوارع رئيسية وسهولة وصول عالية"
-    elif fuel_count >= 1 or total >= 15:
-        access_status = "جيدة جداً"
-        access_score = 80
-        access_detail = "الموقع على طرق رئيسية أو قريب منها"
-    elif total >= 8:
-        access_status = "جيدة"
-        access_score = 65
-        access_detail = "الوصول معقول، قد يحتاج المرور بطرق فرعية"
-    else:
-        access_status = "متوسطة - تحتاج تحقق"
-        access_score = 45
-        access_detail = "نشاط تجاري محدود قد يدل على موقع داخلي"
-
-    food = sum(len(pbc.get(k, [])) for k in ['restaurant', 'cafe', 'fast_food'])
-    grocery = len(pbc.get('grocery', []))
-    pharmacy = len(pbc.get('pharmacy', []))
-
-    morning_score = min(100, fuel_count * 15 + grocery * 8 + pharmacy * 10)
-    noon_score = min(100, food * 6 + shopping * 4)
-    evening_score = min(100, food * 5 + shopping * 6 + grocery * 4 + total * 2)
-
-    def lvl(s):
-        if s >= 75: return "عالية جداً"
-        if s >= 50: return "عالية"
-        if s >= 30: return "متوسطة"
-        if s >= 15: return "منخفضة"
-        return "هادئة"
-
-    peak_hours = {
-        'morning': {'score': morning_score, 'level': lvl(morning_score), 'label': '🌅 الصباح (7-9 ص)'},
-        'noon': {'score': noon_score, 'level': lvl(noon_score), 'label': '☀️ الظهر (12-2 ظ)'},
-        'evening': {'score': evening_score, 'level': lvl(evening_score), 'label': '🌃 المساء (6-10 م)'},
-    }
-    busiest = max(peak_hours.values(), key=lambda x: x['score'])
-
+    
     return {
-        'parking_status': parking_status, 'parking_score': parking_score, 'parking_detail': parking_detail,
-        'access_status': access_status, 'access_score': access_score, 'access_detail': access_detail,
-        'peak_hours': peak_hours, 'busiest_period': busiest['label'],
+        'score': score,
+        'level': level,
+        'color': color,
+        'factors': factors,
+        'has_field_data': has_field_data,
+        'has_gov_data': has_gov_data,
     }
 
 
-# ============================================================
-# التحليل المالي
-# ============================================================
-def financial_analysis(rent_yearly, setup_cost, area_sqm, employees, avg_ticket, daily_customers, target_cat=None, total_places=0):
-    if not (rent_yearly or setup_cost or avg_ticket or daily_customers):
-        return None
-
-    rent_yearly = rent_yearly or 0
-    setup_cost = setup_cost or 0
-    avg_ticket = avg_ticket or 0
-    daily_customers = daily_customers or 0
-    employees = employees or 0
-    area_sqm = area_sqm or 0
-
-    rent_monthly = rent_yearly / 12
-    salary_per_employee = 4000
-    salaries_monthly = employees * salary_per_employee
-    utilities = max(800, area_sqm * 8)
-    other_costs = (rent_monthly + salaries_monthly + utilities) * 0.10
-    monthly_expenses = rent_monthly + salaries_monthly + utilities + other_costs
-
-    monthly_revenue = avg_ticket * daily_customers * 30
-    gross_margin = 0.35 if target_cat in ('restaurant', 'cafe', 'fast_food', 'grocery') else 0.50
-    monthly_gross_profit = monthly_revenue * gross_margin
-
-    net_profit_monthly = monthly_gross_profit - monthly_expenses
-    total_capital = setup_cost + (rent_monthly * 3)
-
-    breakeven_daily = math.ceil((monthly_expenses / gross_margin) / 30 / avg_ticket) if avg_ticket > 0 and gross_margin > 0 else None
-    payback_months = math.ceil(total_capital / net_profit_monthly) if net_profit_monthly > 0 else None
-
-    rent_per_sqm = None
-    rent_assessment = None
-    rent_status = None
-    if rent_yearly > 0 and area_sqm > 0:
-        rent_per_sqm = rent_yearly / area_sqm
-        if total_places > 30:
-            expected_min, expected_max = 800, 2500
-            zone = "تجارية نشطة"
-        elif total_places > 10:
-            expected_min, expected_max = 500, 1500
-            zone = "متوسطة"
-        else:
-            expected_min, expected_max = 200, 800
-            zone = "هادئة"
-        if rent_per_sqm < expected_min:
-            rent_assessment, rent_status = "منخفض - فرصة جيدة", "good"
-        elif rent_per_sqm <= expected_max:
-            rent_assessment, rent_status = f"معقول للمنطقة ({zone})", "ok"
-        else:
-            rent_assessment, rent_status = "مرتفع - فاوض على السعر", "warn"
-
-    if net_profit_monthly > 0 and payback_months and payback_months <= 24:
-        verdict, verdict_status = "مجدي مالياً ✅", "good"
-        verdict_detail = f"الأرباح تغطي رأس المال خلال {payback_months} شهر."
-    elif net_profit_monthly > 0 and payback_months and payback_months <= 48:
-        verdict, verdict_status = "مجدي لكن استرداد بطيء ⚠️", "ok"
-        verdict_detail = f"يحتاج {payback_months} شهر لاسترداد رأس المال."
-    elif net_profit_monthly > 0:
-        verdict, verdict_status = "يحتاج دراسة دقيقة ⚠️", "warn"
-        verdict_detail = "ربح ضعيف نسبة لرأس المال."
-    else:
-        verdict, verdict_status = "غير مجدي بالأرقام الحالية ❌", "danger"
-        verdict_detail = f"المصاريف ({monthly_expenses:,.0f}) تتجاوز الأرباح ({monthly_gross_profit:,.0f})."
-
-    return {
-        'rent_monthly': rent_monthly, 'salaries_monthly': salaries_monthly,
-        'utilities': utilities, 'other_costs': other_costs,
-        'monthly_expenses': monthly_expenses, 'monthly_revenue': monthly_revenue,
-        'monthly_gross_profit': monthly_gross_profit, 'net_profit_monthly': net_profit_monthly,
-        'total_capital': total_capital, 'breakeven_daily': breakeven_daily,
-        'payback_months': payback_months, 'rent_per_sqm': rent_per_sqm,
-        'rent_assessment': rent_assessment, 'rent_status': rent_status,
-        'verdict': verdict, 'verdict_status': verdict_status, 'verdict_detail': verdict_detail,
+# ============================================================================
+# [الدفعة 3] ترتيب الأنشطة (مع تحذير منطقي صادق)
+# ============================================================================
+def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_data=None):
+    """
+    صنّف الأنشطة من الأفضل للأسوأ.
+    
+    ⚠️ تحذير منطقي:
+    - "لا يوجد نشاط X" ≠ "يوجد طلب على X"
+    - قد يكون الغياب بسبب عدم وجود طلب أصلاً
+    - النتائج اقتراحات مبدئية فقط
+    """
+    candidates = {
+        'cafe': {'demand_map': {'عائلي': 70, 'شبابي': 95, 'تجاري': 90, 'طعام': 60, 'خدماتي': 60, 'غير محدد': 70}, 'cap': 8},
+        'restaurant': {'demand_map': {'عائلي': 95, 'شبابي': 80, 'تجاري': 80, 'طعام': 55, 'خدماتي': 65, 'غير محدد': 80}, 'cap': 10},
+        'fast_food': {'demand_map': {'عائلي': 75, 'شبابي': 95, 'تجاري': 85, 'طعام': 60, 'خدماتي': 65, 'غير محدد': 75}, 'cap': 8},
+        'pharmacy': {'demand_map': {'عائلي': 95, 'شبابي': 70, 'تجاري': 70, 'طعام': 50, 'خدماتي': 90, 'غير محدد': 80}, 'cap': 3},
+        'grocery': {'demand_map': {'عائلي': 95, 'شبابي': 75, 'تجاري': 65, 'طعام': 55, 'خدماتي': 80, 'غير محدد': 80}, 'cap': 5},
+        'shopping': {'demand_map': {'عائلي': 75, 'شبابي': 90, 'تجاري': 85, 'طعام': 50, 'خدماتي': 65, 'غير محدد': 75}, 'cap': 8},
+        'clothing_store': {'demand_map': {'عائلي': 80, 'شبابي': 90, 'تجاري': 80, 'طعام': 40, 'خدماتي': 60, 'غير محدد': 75}, 'cap': 6},
+        'electronics_store': {'demand_map': {'عائلي': 70, 'شبابي': 90, 'تجاري': 85, 'طعام': 40, 'خدماتي': 65, 'غير محدد': 70}, 'cap': 4},
+        'home_garden': {'demand_map': {'عائلي': 85, 'شبابي': 50, 'تجاري': 70, 'طعام': 40, 'خدماتي': 65, 'غير محدد': 65}, 'cap': 4},
+        'sporting_goods': {'demand_map': {'عائلي': 65, 'شبابي': 85, 'تجاري': 60, 'طعام': 35, 'خدماتي': 55, 'غير محدد': 60}, 'cap': 3},
+        'auto_repair': {'demand_map': {'عائلي': 75, 'شبابي': 65, 'تجاري': 75, 'طعام': 40, 'خدماتي': 90, 'غير محدد': 70}, 'cap': 5},
+        'car_wash': {'demand_map': {'عائلي': 75, 'شبابي': 80, 'تجاري': 80, 'طعام': 45, 'خدماتي': 85, 'غير محدد': 75}, 'cap': 4},
+        'car_dealer': {'demand_map': {'عائلي': 60, 'شبابي': 70, 'تجاري': 75, 'طعام': 35, 'خدماتي': 70, 'غير محدد': 60}, 'cap': 3},
+        'car_rental': {'demand_map': {'عائلي': 55, 'شبابي': 75, 'تجاري': 85, 'طعام': 50, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
+        'ev_charging_station': {'demand_map': {'عائلي': 60, 'شبابي': 75, 'تجاري': 80, 'طعام': 50, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
+        'clinic': {'demand_map': {'عائلي': 90, 'شبابي': 70, 'تجاري': 75, 'طعام': 50, 'خدماتي': 85, 'غير محدد': 75}, 'cap': 5},
+        'beauty_salon': {'demand_map': {'عائلي': 90, 'شبابي': 95, 'تجاري': 70, 'طعام': 45, 'خدماتي': 75, 'غير محدد': 80}, 'cap': 6},
+        'fitness_center': {'demand_map': {'عائلي': 75, 'شبابي': 95, 'تجاري': 75, 'طعام': 50, 'خدماتي': 65, 'غير محدد': 75}, 'cap': 4},
+        'hotel': {'demand_map': {'عائلي': 40, 'شبابي': 65, 'تجاري': 85, 'طعام': 55, 'خدماتي': 70, 'غير محدد': 55}, 'cap': 4},
+        'services': {'demand_map': {'عائلي': 70, 'شبابي': 60, 'تجاري': 80, 'طعام': 50, 'خدماتي': 90, 'غير محدد': 70}, 'cap': 6},
     }
 
+    main_culture = dna['main']
+    results = []
+    
+    # هل لدينا بيانات ميدانية؟ نستخدمها لتعديل الطلب
+    field_demand_boost = 0
+    if field_data:
+        foot_traffic = field_data.get('foot_traffic_level', '')  # ضعيف/متوسط/قوي
+        if foot_traffic == 'قوي':
+            field_demand_boost = 10
+        elif foot_traffic == 'متوسط':
+            field_demand_boost = 5
+        elif foot_traffic == 'ضعيف':
+            field_demand_boost = -10
+    
+    for cat, info in candidates.items():
+        existing = len(pbc.get(cat, []))
+        demand = info['demand_map'].get(main_culture, 65)
+        # تعديل بناءً على البيانات الميدانية
+        demand = max(0, min(100, demand + field_demand_boost))
+        cap = info['cap']
+        saturation = min(100, int((existing / cap) * 100)) if cap > 0 else 100
+        opportunity = max(0, int(demand - saturation * 0.65))
 
-# ============================================================
-# التحليل الأساسي + Opportunity/Saturation/Demand
-# ============================================================
-def analyze(pbc, radius_km, target_cat=None):
+        # تعديل بناءً على عوامل أخرى
+        if traffic_score >= 70 and cat in ('cafe', 'restaurant', 'fast_food'):
+            opportunity = min(100, opportunity + 8)
+        if pop_score >= 65 and cat in ('grocery', 'pharmacy', 'clinic'):
+            opportunity = min(100, opportunity + 10)
+        if acc_score < 50:
+            opportunity = max(0, opportunity - 10)
+
+        # توليد "لماذا" مع تحذيرات صادقة
+        reasons = []
+        if existing == 0:
+            reasons.append(f"⚠️ لا يوجد {CATEGORIES[cat]['name']} - قد يعكس فرصة أو غياب طلب")
+        elif existing <= 2:
+            reasons.append(f"منافسة محدودة ({existing} منافس)")
+        elif existing > cap:
+            reasons.append(f"السوق مشبع ({existing} منافس)")
+
+        if main_culture in info['demand_map'] and info['demand_map'][main_culture] >= 80:
+            reasons.append(f"تركيبة الحي ({main_culture}) قد تدعم هذا النشاط")
+        elif info['demand_map'].get(main_culture, 65) < 60:
+            reasons.append(f"تركيبة الحي ({main_culture}) قد لا تدعمه بقوة")
+
+        if traffic_score >= 70 and cat in ('cafe', 'restaurant', 'fast_food'):
+            reasons.append("حركة مرور عالية تجذب العملاء")
+        if pop_score >= 65 and cat in ('grocery', 'pharmacy', 'clinic'):
+            reasons.append("كثافة سكانية تخلق طلب يومي")
+
+        results.append({
+            'cat_key': cat,
+            'cat_name': CATEGORIES[cat]['name'],
+            'icon': CATEGORIES[cat]['icon'],
+            'demand': demand,
+            'existing': existing,
+            'saturation': saturation,
+            'opportunity_score': opportunity,
+            'reasons': reasons[:3] if reasons else ["تحليل قياسي"],
+        })
+
+    results.sort(key=lambda x: -x['opportunity_score'])
+    best = results[:3]
+    extras = [r for r in results[3:] if r['opportunity_score'] >= 50]
+    best.extend(extras[:2])
+    best_keys = {b['cat_key'] for b in best}
+    worst_candidates = [r for r in results if r['cat_key'] not in best_keys and r['opportunity_score'] < 35]
+    worst = worst_candidates[-5:] if len(worst_candidates) > 5 else worst_candidates
+    return best, worst
+# ============================================================================
+# [الدفعة 4] التحليل الرئيسي - منطق صادق وبدون تخمين
+# ============================================================================
+def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
+    """
+    التحليل الرئيسي للموقع.
+    
+    التغييرات v3:
+    - ❌ حُذف "السكان المقدّرون" المخمّن
+    - ❌ حُذف "كثافة الذروة" (3 أوقات نفس النتيجة)
+    - ❌ حُذف مقارنة المدن
+    - ✅ منع التناقض المنطقي (لا "افتح" لو الفرصة <40% أو الإشباع >80%)
+    - ✅ يستخدم بيانات السكان الحقيقية من gov_info
+    - ✅ يستخدم البيانات الميدانية من field_data
+    """
     total = sum(len(v) for v in pbc.values())
     active = len(pbc)
 
     area_km2 = math.pi * (radius_km ** 2)
     density = total / area_km2 if area_km2 > 0 else 0
+    
     if total == 0:
         area_type = "منطقة فارغة"
     elif density < 2:
@@ -691,11 +922,11 @@ def analyze(pbc, radius_km, target_cat=None):
 
     food = sum(len(pbc.get(k, [])) for k in ['restaurant', 'cafe', 'fast_food'])
 
-    # المنافسة والمنافسين
+    # المنافسة
     if target_cat:
         competitors = len(pbc.get(target_cat, []))
         if competitors == 0:
-            comp_level, comp_score = "لا منافسة", 100
+            comp_level, comp_score = "لا منافسة مباشرة", 100
         elif competitors <= 2:
             comp_level, comp_score = "منخفض", 80
         elif competitors <= 5:
@@ -717,10 +948,11 @@ def analyze(pbc, radius_km, target_cat=None):
     elif total > 5:
         accessibility, acc_score = "متوسطة", 55
     else:
-        accessibility, acc_score = "تحتاج تحقق", 40
+        accessibility, acc_score = "تحتاج تحقق ميداني", 40
 
-    # الحركة
-    traffic_ind = food * 2 + len(pbc.get('shopping', [])) * 1.5 + len(pbc.get('services', []))
+    # الحركة (مؤشر استدلالي)
+    shopping_total = len(pbc.get('shopping', [])) + len(pbc.get('clothing_store', [])) + len(pbc.get('electronics_store', []))
+    traffic_ind = food * 2 + shopping_total * 1.5 + len(pbc.get('services', []))
     if traffic_ind >= 30:
         traffic_level, traffic_score = "عالية جداً", 95
     elif traffic_ind >= 15:
@@ -732,53 +964,74 @@ def analyze(pbc, radius_km, target_cat=None):
     else:
         traffic_level, traffic_score = "منخفضة جداً", 20
 
-    # السكان
-    pop_ind = len(pbc.get('grocery', [])) * 4 + len(pbc.get('pharmacy', [])) * 3
-    if pop_ind >= 25:
-        pop_density, pop_score = "عالية", 90
-    elif pop_ind >= 12:
-        pop_density, pop_score = "متوسطة", 65
-    elif pop_ind >= 4:
-        pop_density, pop_score = "منخفضة", 40
-    else:
-        pop_density, pop_score = "قليلة", 20
-    est_pop = max(1000, pop_ind * 400) if pop_ind > 0 else 0
+    # تعديل الحركة بناءً على البيانات الميدانية (لو موجودة)
+    if field_data and field_data.get('foot_traffic_level'):
+        ft = field_data['foot_traffic_level']
+        if ft == 'قوي':
+            traffic_score = min(100, traffic_score + 15)
+            traffic_level = "عالية جداً (مؤكدة ميدانياً)"
+        elif ft == 'متوسط':
+            traffic_level = traffic_level + " (مؤكدة ميدانياً)"
+        elif ft == 'ضعيف':
+            traffic_score = max(10, traffic_score - 20)
+            traffic_level = "ضعيفة (مؤكدة ميدانياً)"
 
-    # ===== المؤشرات الثلاث الجديدة (Opportunity / Saturation / Demand) =====
+    # الكثافة السكانية - تعتمد على بيانات المحافظة الحقيقية
+    # ⚠️ ملاحظة: سكان المحافظة ليس بالضرورة سكان الحي - نقولها بصراحة
+    if gov_info:
+        gov_pop = gov_info['data']['pop']
+        gov_area = gov_info['data']['area']
+        gov_density = gov_pop / gov_area if gov_area > 0 else 0
+        # تصنيف بسيط على مستوى المحافظة
+        if gov_density >= 500:
+            pop_density, pop_score = "عالية (محافظة)", 85
+        elif gov_density >= 100:
+            pop_density, pop_score = "متوسطة (محافظة)", 65
+        elif gov_density >= 20:
+            pop_density, pop_score = "منخفضة (محافظة)", 45
+        else:
+            pop_density, pop_score = "ريفية (محافظة)", 25
+    else:
+        # لا توجد بيانات سكان حقيقية
+        pop_density, pop_score = "غير معروفة", 50
+
+    # المؤشرات الثلاث
     if target_cat:
-        # Saturation = نسبة الإشباع للنشاط المستهدف
-        max_capacity = {'cafe': 8, 'restaurant': 10, 'fast_food': 8, 'pharmacy': 3, 'grocery': 5, 'shopping': 8, 'fuel': 4, 'services': 6}.get(target_cat, 6)
+        max_capacity = {'cafe': 8, 'restaurant': 10, 'fast_food': 8, 'pharmacy': 3, 'grocery': 5,
+                        'shopping': 8, 'fuel': 4, 'services': 6}.get(target_cat, 6)
         saturation = min(100, int((competitors / max_capacity) * 100))
-        # Demand = الطلب المتوقع (بناءً على الحركة + السكان + ثقافة الحي)
         demand = int((traffic_score * 0.4 + pop_score * 0.4 + acc_score * 0.2))
-        # Opportunity = الفرصة (الطلب ناقص الإشباع المؤثر)
         opportunity = max(0, int(demand - saturation * 0.6))
     else:
-        # بدون نشاط محدد، نحسب متوسط عام
         avg_per_cat = total / max(active, 1)
         saturation = min(100, int(avg_per_cat * 12))
         demand = int((traffic_score * 0.5 + pop_score * 0.5))
         opportunity = max(0, int(demand - saturation * 0.5))
 
-    # ===== نقاط الاستثمار النهائية =====
+    # نقاط الاستثمار
     if target_cat:
         score = int(opportunity * 0.40 + traffic_score * 0.20 + acc_score * 0.15 + pop_score * 0.15 + comp_score * 0.10)
     else:
-        # بدون نشاط: نقّيم جودة الموقع ككل (إمكاناته، حركته، طلبه)
         score = int(demand * 0.35 + traffic_score * 0.25 + acc_score * 0.20 + pop_score * 0.20)
 
-    # ===== القرار النهائي =====
-    # مهم: لو ما اختار نشاطاً، ما نقول "افتح بثقة" لأنه ما حدد افتح ايش!
-    # بدلاً من ذلك نعرض "فرصة ذهبية" كتقييم لجودة الموقع نفسه
+    # ⚠️ إصلاح التناقض المنطقي: 
+    # لو الإشباع >85% أو الفرصة <30%، ممنوع أن يكون القرار "افتح بثقة" أو "افتح بشروط"
+    contradiction_block = False
     if target_cat:
-        # المستخدم اختار نشاط - نقرر بناءً على فرصة هذا النشاط تحديداً
-        if score >= 75:
+        if saturation >= 85 or opportunity < 30:
+            contradiction_block = True
+            # نخفض النقاط لتعكس الواقع
+            score = min(score, 55)
+
+    # القرار النهائي
+    if target_cat:
+        if score >= 75 and not contradiction_block:
             decision = "افتح بثقة"
             decision_emoji = "🟢"
             decision_color = "#10b981"
             decision_bg = "rgba(16,185,129,0.12)"
             decision_summary = "هذا الموقع يحقق معظم شروط النجاح لنشاطك. ابدأ مع التركيز على التميز."
-        elif score >= 60:
+        elif score >= 60 and not contradiction_block:
             decision = "افتح بشروط"
             decision_emoji = "🟢"
             decision_color = "#10b981"
@@ -789,7 +1042,10 @@ def analyze(pbc, radius_km, target_cat=None):
             decision_emoji = "🟡"
             decision_color = "#f59e0b"
             decision_bg = "rgba(245,158,11,0.10)"
-            decision_summary = "الموقع متوسط لنشاطك - تأكد من ميزتك التنافسية قبل الاستثمار."
+            if contradiction_block and saturation >= 85:
+                decision_summary = f"السوق مشبع ({saturation}%) - النجاح يتطلب تميّزاً قوياً وعرض فريد."
+            else:
+                decision_summary = "الموقع متوسط لنشاطك - تأكد من ميزتك التنافسية قبل الاستثمار."
         elif score >= 30:
             decision = "غير منصوح به"
             decision_emoji = "🟠"
@@ -803,13 +1059,13 @@ def analyze(pbc, radius_km, target_cat=None):
             decision_bg = "rgba(239,68,68,0.10)"
             decision_summary = "البيانات لا تدعم نجاح نشاطك في هذا الموقع."
     else:
-        # المستخدم لم يختر نشاط - نقيّم جودة الموقع كفرصة استثمارية
+        # بدون نشاط محدد
         if score >= 75:
             decision = "فرصة ذهبية"
             decision_emoji = "🌟"
             decision_color = "#10b981"
             decision_bg = "rgba(16,185,129,0.12)"
-            decision_summary = "موقع استثماري ممتاز - الحركة عالية، الطلب مرتفع، والوصول سهل. النشاط المناسب سيُحدّد أدناه."
+            decision_summary = "موقع استثماري ممتاز - الحركة عالية والوصول سهل. النشاط المناسب سيُحدّد أدناه."
         elif score >= 60:
             decision = "موقع واعد"
             decision_emoji = "💎"
@@ -841,20 +1097,25 @@ def analyze(pbc, radius_km, target_cat=None):
         if len(pbc.get(key, [])) == 0:
             missing.append(label)
 
-    # نقاط القوة والضعف
+    # نقاط القوة والانتباه
     strengths, cautions = [], []
-    if traffic_score >= 70: strengths.append("حركة مرور عالية")
+    if traffic_score >= 70: strengths.append("حركة مرور عالية (مؤشر استدلالي)")
     if acc_score >= 70: strengths.append("سهولة وصول ممتازة")
-    if pop_score >= 65: strengths.append("كثافة سكانية جيدة")
-    if comp_score >= 60: strengths.append("مستوى منافسة مقبول")
+    if pop_score >= 65: strengths.append("كثافة سكانية جيدة على مستوى المحافظة")
+    if comp_score >= 60 and target_cat: strengths.append("مستوى منافسة مقبول")
     if active >= 5: strengths.append("تنوع تجاري في المنطقة")
     if opportunity >= 60: strengths.append("فرصة سوقية مرتفعة")
-    if comp_score < 40: cautions.append("منافسة مرتفعة في النشاط المستهدف")
+    if field_data and field_data.get('site_visits') == 'متعدد': strengths.append("بيانات ميدانية مؤكدة")
+    
+    if comp_score < 40 and target_cat: cautions.append("منافسة مرتفعة في النشاط المستهدف")
     if traffic_score < 40: cautions.append("حركة منخفضة - يحتاج جذب نشط")
-    if pop_score < 40: cautions.append("كثافة سكانية محدودة")
+    if pop_score < 40: cautions.append("كثافة سكانية محدودة (مستوى المحافظة)")
     if total < 5: cautions.append("بنية تجارية ضعيفة في المحيط")
     if saturation > 80: cautions.append(f"السوق مشبع بنسبة {saturation}%")
-    if not strengths: strengths.append("منطقة بكر تحتاج دراسة")
+    if not gov_info: cautions.append("لا توجد بيانات سكان رسمية للموقع")
+    if not field_data: cautions.append("لا توجد بيانات ميدانية - مطلوبة لرفع الدقة")
+    
+    if not strengths: strengths.append("منطقة بكر تحتاج دراسة ميدانية")
     if not cautions: cautions.append("راقب الإيجارات في المنطقة")
 
     # أعلى المنافسين
@@ -862,6 +1123,17 @@ def analyze(pbc, radius_km, target_cat=None):
     if target_cat and target_cat in pbc:
         for p in pbc[target_cat][:5]:
             top_competitors.append({'name': p['name'], 'dist': round(p['dist'], 2)})
+
+    # قسم "ما يحتاج تحقق ميداني" - شفافية كاملة
+    needs_verification = []
+    if not gov_info:
+        needs_verification.append("بيانات السكان الفعلية للموقع (المحافظة غير محددة)")
+    if not field_data:
+        needs_verification.append("الحركة الفعلية للمارّة والسيارات (يحتاج عدّ ميداني)")
+        needs_verification.append("قوة المنافسين الحقيقية (تقييماتهم وعدد عملائهم)")
+    needs_verification.append("أسعار الإيجارات الفعلية في الموقع")
+    needs_verification.append("التركيبة العمرية والدخلية لسكان الحي")
+    needs_verification.append("المشاريع التطويرية المستقبلية في المنطقة")
 
     return {
         'investment_score': score,
@@ -874,114 +1146,122 @@ def analyze(pbc, radius_km, target_cat=None):
         'competition_level': comp_level, 'competition_score': comp_score, 'competitor_count': competitors,
         'traffic_level': traffic_level, 'traffic_score': traffic_score,
         'accessibility': accessibility, 'accessibility_score': acc_score,
-        'pop_density': pop_density, 'pop_score': pop_score, 'est_population': est_pop,
+        'pop_density': pop_density, 'pop_score': pop_score,
         'missing_services': missing,
         'top_competitors': top_competitors,
         'strengths': strengths, 'cautions': cautions,
         'target_cat': target_cat,
+        'gov_info': gov_info,
+        'needs_verification': needs_verification,
+        'contradiction_block': contradiction_block,
     }
 
 
-# ============================================================
-# اقتراحات الأنشطة (أفضل وأسوأ) + لماذا - جديد
-# ============================================================
-def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score):
-    """صنّف كل النشاطات من الأفضل للأسوأ مع شرح"""
-    # خريطة الطلب والسعة لكل نشاط حسب طبيعة الحي
-    candidates = {
-        # طعام (طلب عالي عادة)
-        'cafe': {'demand_map': {'عائلي': 70, 'شبابي': 95, 'تجاري': 90, 'طعام': 60, 'خدماتي': 60, 'غير محدد': 70}, 'cap': 8},
-        'restaurant': {'demand_map': {'عائلي': 95, 'شبابي': 80, 'تجاري': 80, 'طعام': 55, 'خدماتي': 65, 'غير محدد': 80}, 'cap': 10},
-        'fast_food': {'demand_map': {'عائلي': 75, 'شبابي': 95, 'تجاري': 85, 'طعام': 60, 'خدماتي': 65, 'غير محدد': 75}, 'cap': 8},
-        # خدمات أساسية (طلب يومي)
-        'pharmacy': {'demand_map': {'عائلي': 95, 'شبابي': 70, 'تجاري': 70, 'طعام': 50, 'خدماتي': 90, 'غير محدد': 80}, 'cap': 3},
-        'grocery': {'demand_map': {'عائلي': 95, 'شبابي': 75, 'تجاري': 65, 'طعام': 55, 'خدماتي': 80, 'غير محدد': 80}, 'cap': 5},
-        # تسوق
-        'shopping': {'demand_map': {'عائلي': 75, 'شبابي': 90, 'تجاري': 85, 'طعام': 50, 'خدماتي': 65, 'غير محدد': 75}, 'cap': 8},
-        'clothing_store': {'demand_map': {'عائلي': 80, 'شبابي': 90, 'تجاري': 80, 'طعام': 40, 'خدماتي': 60, 'غير محدد': 75}, 'cap': 6},
-        'electronics_store': {'demand_map': {'عائلي': 70, 'شبابي': 90, 'تجاري': 85, 'طعام': 40, 'خدماتي': 65, 'غير محدد': 70}, 'cap': 4},
-        'home_garden': {'demand_map': {'عائلي': 85, 'شبابي': 50, 'تجاري': 70, 'طعام': 40, 'خدماتي': 65, 'غير محدد': 65}, 'cap': 4},
-        'sporting_goods': {'demand_map': {'عائلي': 65, 'شبابي': 85, 'تجاري': 60, 'طعام': 35, 'خدماتي': 55, 'غير محدد': 60}, 'cap': 3},
-        # سيارات
-        'auto_repair': {'demand_map': {'عائلي': 75, 'شبابي': 65, 'تجاري': 75, 'طعام': 40, 'خدماتي': 90, 'غير محدد': 70}, 'cap': 5},
-        'car_wash': {'demand_map': {'عائلي': 75, 'شبابي': 80, 'تجاري': 80, 'طعام': 45, 'خدماتي': 85, 'غير محدد': 75}, 'cap': 4},
-        'car_dealer': {'demand_map': {'عائلي': 60, 'شبابي': 70, 'تجاري': 75, 'طعام': 35, 'خدماتي': 70, 'غير محدد': 60}, 'cap': 3},
-        'car_rental': {'demand_map': {'عائلي': 55, 'شبابي': 75, 'تجاري': 85, 'طعام': 50, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
-        'ev_charging_station': {'demand_map': {'عائلي': 60, 'شبابي': 75, 'تجاري': 80, 'طعام': 50, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
-        # صحة وتجميل
-        'clinic': {'demand_map': {'عائلي': 90, 'شبابي': 70, 'تجاري': 75, 'طعام': 50, 'خدماتي': 85, 'غير محدد': 75}, 'cap': 5},
-        'beauty_salon': {'demand_map': {'عائلي': 90, 'شبابي': 95, 'تجاري': 70, 'طعام': 45, 'خدماتي': 75, 'غير محدد': 80}, 'cap': 6},
-        # ترفيه
-        'fitness_center': {'demand_map': {'عائلي': 75, 'شبابي': 95, 'تجاري': 75, 'طعام': 50, 'خدماتي': 65, 'غير محدد': 75}, 'cap': 4},
-        # مالية/سفر
-        'hotel': {'demand_map': {'عائلي': 40, 'شبابي': 65, 'تجاري': 85, 'طعام': 55, 'خدماتي': 70, 'غير محدد': 55}, 'cap': 4},
-        # خدمات عامة
-        'services': {'demand_map': {'عائلي': 70, 'شبابي': 60, 'تجاري': 80, 'طعام': 50, 'خدماتي': 90, 'غير محدد': 70}, 'cap': 6},
+# ============================================================================
+# [الدفعة 4] التحليل المالي - مع تحذير صريح
+# ============================================================================
+def financial_analysis(rent_yearly, setup_cost, area_sqm, employees, avg_ticket, daily_customers,
+                       target_cat=None, total_places=0):
+    """
+    التحليل المالي.
+    
+    التغييرات v3:
+    - ✅ تحذير صريح لو المستخدم ما أدخل إيرادات
+    - ✅ توضيح أن الافتراضات قابلة للتعديل
+    - ✅ لا يقول "غير مجدي" بشكل قاطع إذا الأرقام ناقصة
+    """
+    if not (rent_yearly or setup_cost or avg_ticket or daily_customers):
+        return None
+
+    rent_yearly = rent_yearly or 0
+    setup_cost = setup_cost or 0
+    avg_ticket = avg_ticket or 0
+    daily_customers = daily_customers or 0
+    employees = employees or 0
+    area_sqm = area_sqm or 0
+    
+    has_revenue_data = (avg_ticket > 0 and daily_customers > 0)
+    has_cost_data = (rent_yearly > 0 or setup_cost > 0)
+
+    rent_monthly = rent_yearly / 12
+    salary_per_employee = 4000  # افتراض - قابل للتعديل
+    salaries_monthly = employees * salary_per_employee
+    utilities = max(800, area_sqm * 8) if area_sqm > 0 else 800
+    other_costs = (rent_monthly + salaries_monthly + utilities) * 0.10
+    monthly_expenses = rent_monthly + salaries_monthly + utilities + other_costs
+
+    monthly_revenue = avg_ticket * daily_customers * 30
+    gross_margin = 0.35 if target_cat in ('restaurant', 'cafe', 'fast_food', 'grocery') else 0.50
+    monthly_gross_profit = monthly_revenue * gross_margin
+
+    net_profit_monthly = monthly_gross_profit - monthly_expenses
+    total_capital = setup_cost + (rent_monthly * 3)
+
+    breakeven_daily = None
+    if avg_ticket > 0 and gross_margin > 0:
+        breakeven_daily = math.ceil((monthly_expenses / gross_margin) / 30 / avg_ticket)
+
+    payback_months = None
+    if net_profit_monthly > 0:
+        payback_months = math.ceil(total_capital / net_profit_monthly)
+
+    rent_per_sqm = None
+    rent_assessment = None
+    rent_status = None
+    if rent_yearly > 0 and area_sqm > 0:
+        rent_per_sqm = rent_yearly / area_sqm
+
+    # ✅ المنطق المحسّن: لا نقول "غير مجدي" بدون بيانات إيرادات
+    if not has_revenue_data:
+        verdict = "تحليل غير مكتمل ⚠️"
+        verdict_status = "warn"
+        verdict_detail = ("لإكمال التحليل المالي، أدخل: متوسط الفاتورة المتوقع + عدد العملاء اليومي. "
+                          "بدون هذه البيانات، لا يمكن حساب الربحية أو الجدوى.")
+    elif not has_cost_data:
+        verdict = "بيانات التكلفة ناقصة ⚠️"
+        verdict_status = "warn"
+        verdict_detail = "أدخل تكاليف الإيجار والتجهيز للحصول على تحليل جدوى كامل."
+    elif net_profit_monthly > 0 and payback_months and payback_months <= 24:
+        verdict = "مجدي مالياً ✅"
+        verdict_status = "good"
+        verdict_detail = f"الأرباح تغطي رأس المال خلال {payback_months} شهر (بناءً على أرقامك)."
+    elif net_profit_monthly > 0 and payback_months and payback_months <= 48:
+        verdict = "مجدي لكن استرداد بطيء ⚠️"
+        verdict_status = "ok"
+        verdict_detail = f"يحتاج {payback_months} شهر لاسترداد رأس المال (بناءً على أرقامك)."
+    elif net_profit_monthly > 0:
+        verdict = "يحتاج دراسة دقيقة ⚠️"
+        verdict_status = "warn"
+        verdict_detail = "ربح ضعيف نسبة لرأس المال - راجع الإيجار أو الإيرادات المتوقعة."
+    else:
+        verdict = "بحاجة إعادة دراسة الأرقام ⚠️"
+        verdict_status = "danger"
+        verdict_detail = (f"المصاريف ({monthly_expenses:,.0f}) تتجاوز الأرباح ({monthly_gross_profit:,.0f}). "
+                          "تحقق من توقعات العملاء وأسعارك.")
+
+    return {
+        'rent_monthly': rent_monthly, 'salaries_monthly': salaries_monthly,
+        'utilities': utilities, 'other_costs': other_costs,
+        'monthly_expenses': monthly_expenses, 'monthly_revenue': monthly_revenue,
+        'monthly_gross_profit': monthly_gross_profit, 'net_profit_monthly': net_profit_monthly,
+        'total_capital': total_capital, 'breakeven_daily': breakeven_daily,
+        'payback_months': payback_months, 'rent_per_sqm': rent_per_sqm,
+        'rent_assessment': rent_assessment, 'rent_status': rent_status,
+        'verdict': verdict, 'verdict_status': verdict_status, 'verdict_detail': verdict_detail,
+        'has_revenue_data': has_revenue_data, 'has_cost_data': has_cost_data,
+        'assumptions': {
+            'salary_per_employee': salary_per_employee,
+            'gross_margin': gross_margin,
+            'other_costs_pct': 10,
+        }
     }
 
-    main_culture = dna['main']
-    results = []
-    for cat, info in candidates.items():
-        existing = len(pbc.get(cat, []))
-        demand = info['demand_map'].get(main_culture, 65)
-        cap = info['cap']
-        saturation = min(100, int((existing / cap) * 100)) if cap > 0 else 100
-        opportunity = max(0, int(demand - saturation * 0.65))
 
-        # تعديل بناءً على عوامل أخرى
-        if traffic_score >= 70 and cat in ('cafe', 'restaurant', 'fast_food'):
-            opportunity = min(100, opportunity + 8)
-        if pop_score >= 65 and cat in ('grocery', 'pharmacy', 'clinic'):
-            opportunity = min(100, opportunity + 10)
-        if acc_score < 50:
-            opportunity = max(0, opportunity - 10)
-
-        # توليد "لماذا"
-        reasons = []
-        if existing == 0:
-            reasons.append(f"لا يوجد {CATEGORIES[cat]['name']} في المنطقة")
-        elif existing <= 2:
-            reasons.append(f"منافسة محدودة ({existing} منافس)")
-        elif existing > cap:
-            reasons.append(f"السوق مشبع ({existing} منافس)")
-
-        if main_culture in info['demand_map'] and info['demand_map'][main_culture] >= 80:
-            reasons.append(f"الحي {main_culture} يدعم هذا النشاط بقوة")
-        elif info['demand_map'].get(main_culture, 65) < 60:
-            reasons.append(f"الحي {main_culture} لا يدعم بقوة")
-
-        if traffic_score >= 70 and cat in ('cafe', 'restaurant', 'fast_food'):
-            reasons.append("حركة مرور عالية تجذب العملاء")
-        if pop_score >= 65 and cat in ('grocery', 'pharmacy', 'clinic'):
-            reasons.append("كثافة سكانية تخلق طلب يومي")
-
-        results.append({
-            'cat_key': cat,
-            'cat_name': CATEGORIES[cat]['name'],
-            'icon': CATEGORIES[cat]['icon'],
-            'demand': demand,
-            'existing': existing,
-            'saturation': saturation,
-            'opportunity_score': opportunity,
-            'reasons': reasons[:3] if reasons else ["تحليل قياسي"],
-        })
-
-    results.sort(key=lambda x: -x['opportunity_score'])
-    # دائماً أعلى 3 (حتى لو فرصتها متوسطة)، ومن 4-5 لو فرصتهم >= 50
-    best = results[:3]
-    extras = [r for r in results[3:] if r['opportunity_score'] >= 50]
-    best.extend(extras[:2])
-    best_keys = {b['cat_key'] for b in best}
-    # الأسوأ: الأقل فرصة فقط من الأنشطة اللي ما ظهرت في الأفضل
-    worst_candidates = [r for r in results if r['cat_key'] not in best_keys and r['opportunity_score'] < 35]
-    worst = worst_candidates[-5:] if len(worst_candidates) > 5 else worst_candidates
-    return best, worst
-
-
-# ============================================================
-# تحليل الصور
-# ============================================================
+# ============================================================================
+# [الدفعة 4] AI helpers
+# ============================================================================
 def analyze_image_with_ai(image, location_context=""):
+    """تحليل صورة الموقع بـ Gemini Vision"""
     if not AI_AVAILABLE:
         return None
     try:
@@ -1017,6 +1297,7 @@ JSON فقط."""
 
 
 def integrate_image_analysis(image_results, base_analysis):
+    """دمج نتائج تحليل الصور في التحليل الأساسي"""
     if not image_results:
         return base_analysis
     scores = [r.get('overall_score', 5) for r in image_results if isinstance(r.get('overall_score'), (int, float))]
@@ -1039,15 +1320,10 @@ def integrate_image_analysis(image_results, base_analysis):
     return base_analysis
 
 
-# ============================================================
-# تحليل نشاط مخصص (يكتبه المستخدم بنفسه)
-# ============================================================
 def analyze_custom_activity(activity_text, analysis, pbc, lat, lng):
-    """يحلل نشاطاً مخصصاً يكتبه المستخدم باللغة الطبيعية"""
+    """تحليل نشاط مخصص (يكتبه المستخدم)"""
     if not AI_AVAILABLE:
-        # وضع بدون AI - تحليل بسيط
         total = analysis['total_places']
-        traffic = analysis['traffic_score']
         return {
             'activity': activity_text,
             'verdict': 'يحتاج دراسة' if total > 10 else 'بيانات محدودة',
@@ -1062,28 +1338,31 @@ def analyze_custom_activity(activity_text, analysis, pbc, lat, lng):
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
         summary = ", ".join([f"{CATEGORIES[k]['name']}({len(v)})" for k, v in pbc.items()])
+        gov_text = ""
+        if analysis.get('gov_info'):
+            gi = analysis['gov_info']
+            gov_text = f"\n- المحافظة: {gi['name']} (سكان: {gi['data']['pop']:,})"
         prompt = f"""أنت خبير تحليل مواقع تجارية في السعودية. حلّل جدوى فتح نشاط محدد:
 
 النشاط المقترح: "{activity_text}"
 
 بيانات الموقع:
 - إجمالي المحلات في النطاق: {analysis['total_places']}
-- الأنشطة الموجودة: {summary}
+- الأنشطة الموجودة: {summary}{gov_text}
 - ثقافة الحي: {analysis['dna']['main']} (عائلي:{analysis['dna']['family']}%, شبابي:{analysis['dna']['youth']}%, تجاري:{analysis['dna']['commercial']}%)
 - الحركة: {analysis['traffic_level']} ({analysis['traffic_score']}/100)
-- الكثافة السكانية: {analysis['pop_density']} ({analysis['pop_score']}/100)
 - سهولة الوصول: {analysis['accessibility']} ({analysis['accessibility_score']}/100)
 - نوع المنطقة: {analysis['area_type']}
 
-أعد JSON فقط (بدون أي نص خارج JSON):
+أعد JSON فقط:
 {{
-  "verdict": "نص قصير مثل: فرصة ممتازة، مناسب، يحتاج دراسة، غير مناسب، تجنّبه",
-  "verdict_color": "كود لون hex بناءً على التقييم: #10b981 للممتاز، #3b82f6 للجيد، #f59e0b للمتوسط، #f97316 للضعيف، #ef4444 للسيء",
-  "score": "رقم من 0-100 يعبّر عن مدى ملاءمة هذا النشاط لهذا الموقع تحديداً",
-  "reasoning": "شرح من 3 جمل: لماذا هذا التقييم؟ ما الذي يدعم النشاط؟ ما الذي يعارضه؟",
-  "similar_competitors": "رقم تقديري للمنافسين الحاليين من نفس النشاط أو مشابهين",
-  "opportunities": ["فرصة قوية 1", "فرصة قوية 2", "فرصة قوية 3"],
-  "risks": ["تحذير 1", "تحذير 2", "تحذير 3"]
+  "verdict": "نص قصير: فرصة ممتازة، مناسب، يحتاج دراسة، غير مناسب، تجنّبه",
+  "verdict_color": "#10b981 ممتاز / #3b82f6 جيد / #f59e0b متوسط / #f97316 ضعيف / #ef4444 سيء",
+  "score": "رقم من 0-100",
+  "reasoning": "شرح 3 جمل: لماذا هذا التقييم؟",
+  "similar_competitors": "رقم تقديري للمنافسين المشابهين",
+  "opportunities": ["فرصة 1", "فرصة 2", "فرصة 3"],
+  "risks": ["تحذير 1", "تحذير 2"]
 }}"""
         response = model.generate_content(prompt)
         text = response.text.strip()
@@ -1093,17 +1372,14 @@ def analyze_custom_activity(activity_text, analysis, pbc, lat, lng):
             text = text.split('```')[1].split('```')[0]
         result = json.loads(text.strip())
         result['activity'] = activity_text
-        # تأكد من القيم الافتراضية
-        if not isinstance(result.get('score'), (int, float)):
-            try:
-                result['score'] = int(str(result.get('score', 50)).strip())
-            except Exception:
-                result['score'] = 50
-        if not isinstance(result.get('similar_competitors'), (int, float)):
-            try:
-                result['similar_competitors'] = int(str(result.get('similar_competitors', 0)).strip())
-            except Exception:
-                result['similar_competitors'] = 0
+        try:
+            result['score'] = int(str(result.get('score', 50)).strip())
+        except Exception:
+            result['score'] = 50
+        try:
+            result['similar_competitors'] = int(str(result.get('similar_competitors', 0)).strip())
+        except Exception:
+            result['similar_competitors'] = 0
         return result
     except Exception:
         return {
@@ -1111,28 +1387,67 @@ def analyze_custom_activity(activity_text, analysis, pbc, lat, lng):
             'verdict': 'تعذّر التحليل',
             'verdict_color': '#94a3b8',
             'score': 50,
-            'reasoning': "حدث خطأ في تحليل AI. حاول مرة أخرى أو اختر نشاطاً من القائمة المنسدلة.",
+            'reasoning': "حدث خطأ في تحليل AI. حاول مرة أخرى.",
             'similar_competitors': 0,
             'opportunities': [],
             'risks': [],
         }
 
 
-# ============================================================
-# AI
-# ============================================================
+def analyze_field_report(report_text, analysis, pbc, lat, lng):
+    """تحليل التقرير الميداني النصي من المستخدم بـ Gemini"""
+    if not AI_AVAILABLE or not report_text.strip():
+        return None
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        summary = ", ".join([f"{CATEGORIES[k]['name']}({len(v)})" for k, v in pbc.items()])
+        prompt = f"""أنت خبير تحليل مواقع. اقرأ هذا التقرير الميداني من زائر فعلي للموقع واستخرج رؤى:
+
+التقرير الميداني:
+"{report_text}"
+
+السياق الإضافي عن الموقع:
+- الأنشطة المكتشفة: {summary}
+- نوع المنطقة: {analysis['area_type']}
+
+أعد JSON فقط:
+{{
+  "key_insights": ["رؤية مهمة 1", "رؤية مهمة 2", "رؤية مهمة 3"],
+  "extracted_facts": {{"foot_traffic": "ضعيف/متوسط/قوي", "competitor_strength": "ضعيف/متوسط/قوي", "area_potential": "ضعيف/متوسط/قوي"}},
+  "warnings_detected": ["تحذير 1", "تحذير 2"],
+  "opportunities_detected": ["فرصة 1", "فرصة 2"],
+  "summary": "ملخص في جملتين"
+}}"""
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if '```json' in text:
+            text = text.split('```json')[1].split('```')[0]
+        elif '```' in text:
+            text = text.split('```')[1].split('```')[0]
+        return json.loads(text.strip())
+    except Exception:
+        return None
+
+
 def ai_enhance(analysis, pbc, lat, lng):
+    """تحسين التحليل بـ Gemini AI"""
     if not AI_AVAILABLE:
         return analysis
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
         summary = ", ".join([f"{CATEGORIES[k]['name']}({len(v)})" for k, v in pbc.items()])
-        prompt = f"""أنت خبير تحليل مواقع في السعودية. الموقع ({lat},{lng}).
+        gov_text = ""
+        if analysis.get('gov_info'):
+            gi = analysis['gov_info']
+            gov_text = f", المحافظة: {gi['name']} (سكان: {gi['data']['pop']:,})"
+        prompt = f"""أنت خبير تحليل مواقع في السعودية. الموقع ({lat},{lng}){gov_text}.
 الأنشطة: {summary}
 نقاط الاستثمار: {analysis['investment_score']}/100
+القرار الحالي: {analysis['decision']}
 الفرصة: {analysis['opportunity_score']}, الإشباع: {analysis['saturation_score']}, الطلب: {analysis['demand_score']}
+
 أعد JSON فقط:
-{{"ai_recommendation":"توصية محسّنة في 3 جمل مفيدة وواقعية"}}"""
+{{"ai_recommendation":"توصية محسّنة في 3 جمل مفيدة وواقعية (تجنّب التناقض)"}}"""
         text = model.generate_content(prompt).text.strip()
         if '```json' in text:
             text = text.split('```json')[1].split('```')[0]
@@ -1147,11 +1462,16 @@ def ai_enhance(analysis, pbc, lat, lng):
 
 
 def ai_chat(msg, analysis, pbc, lat, lng):
+    """محادثة AI مع السياق"""
     if AI_AVAILABLE:
         try:
             model = genai.GenerativeModel('gemini-2.5-flash')
             summary = ", ".join([f"{CATEGORIES[k]['name']}({len(v)})" for k, v in pbc.items()])
-            ctx = f"""موقع: {lat},{lng} | الأنشطة: {summary}
+            gov_text = ""
+            if analysis.get('gov_info'):
+                gi = analysis['gov_info']
+                gov_text = f"\nالمحافظة: {gi['name']} (سكان: {gi['data']['pop']:,})"
+            ctx = f"""موقع: {lat},{lng} | الأنشطة: {summary}{gov_text}
 نقاط: {analysis['investment_score']}/100 | القرار: {analysis['decision']}
 الفرصة: {analysis['opportunity_score']} | الإشباع: {analysis['saturation_score']} | الطلب: {analysis['demand_score']}
 المنطقة: {analysis['area_type']} | الحركة: {analysis['traffic_level']}
@@ -1161,17 +1481,27 @@ def ai_chat(msg, analysis, pbc, lat, lng):
         except Exception:
             pass
     return f"📊 {analysis['decision']}: {analysis['decision_summary']}"
-
-
-# ============================================================
-# بناء تقرير HTML قابل للطباعة (PDF عبر المتصفح)
-# ============================================================
+# ============================================================================
+# [الدفعة 5] تقرير PDF (HTML قابل للطباعة)
+# ============================================================================
 def build_report_html(a, pbc, lat, lng, radius):
     """يولّد تقرير HTML قابل للطباعة كـ PDF عبر المتصفح"""
     from datetime import datetime
     now = datetime.now().strftime("%Y/%m/%d - %H:%M")
 
-    # ====== رأس التقرير ======
+    # تحذير الصدق
+    honesty = """
+    <div style="background:#fef3c7; border:2px solid #f59e0b; border-radius:12px; padding:14px; margin-bottom:18px;">
+        <b style="color:#92400e;">⚠️ تنبيه:</b>
+        <span style="color:#78350f; font-size:13px;">
+        هذا التقرير أداة استكشاف أولية، وليس دراسة جدوى مهنية معتمدة. 
+        لا يحتوي على تقييمات منافسين فعلية ولا حركة عملاء حقيقية.
+        مطلوب قبل القرار: زيارة ميدانية + استشارة خبير.
+        </span>
+    </div>
+    """
+
+    # رأس التقرير
     header = f"""
     <div class="report-header">
         <div class="logo">📊 GBI</div>
@@ -1186,7 +1516,7 @@ def build_report_html(a, pbc, lat, lng, radius):
     </div>
     """
 
-    # ====== القرار النهائي ======
+    # القرار النهائي
     conf = a.get('confidence', {})
     decision_section = f"""
     <div class="section verdict" style="border-color: {a['decision_color']}; background: {a['decision_bg']};">
@@ -1199,7 +1529,28 @@ def build_report_html(a, pbc, lat, lng, radius):
     </div>
     """
 
-    # ====== أفضل نشاط مقترح (لو ما اختار) ======
+    # بيانات المحافظة (لو موجودة)
+    gov_section = ""
+    if a.get('gov_info'):
+        gi = a['gov_info']
+        conf_text = {"high": "عالية", "medium": "متوسطة", "low": "محدودة"}.get(gi['confidence'], '-')
+        gov_section = f"""
+        <div class="section" style="border-color:#3b82f6;">
+            <h3>🏛️ بيانات المحافظة (تعداد GASTAT 2022)</h3>
+            <div class="gov-stats">
+                <div><b>المحافظة:</b> {gi['name']}</div>
+                <div><b>السكان:</b> {gi['data']['pop']:,}</div>
+                <div><b>المساحة:</b> {gi['data']['area']:,} كم²</div>
+                <div><b>المنطقة:</b> {gi['data']['region']}</div>
+                <div><b>المسافة من المركز:</b> {gi['distance_km']} كم (ثقة: {conf_text})</div>
+            </div>
+            <p style="color:#666; font-size:12px; margin-top:10px;">
+                ⚠️ بيانات السكان على مستوى المحافظة كاملة، وقد لا تعكس الكثافة الفعلية لموقعك المحدد.
+            </p>
+        </div>
+        """
+
+    # أفضل نشاط (لو ما اختار)
     best_act_highlight = ""
     if not a.get('target_cat') and a.get('best_activities'):
         top_act = a['best_activities'][0]
@@ -1209,15 +1560,11 @@ def build_report_html(a, pbc, lat, lng, radius):
             <div style="color:#7c3aed; font-size:13px; font-weight:600; margin-bottom:6px;">🎯 أفضل نشاط مقترح لهذا الموقع</div>
             <h2 style="color:#1f2937;">{top_act['icon']} {top_act['cat_name']} <span style="background:#d1fae5; color:#047857; padding:6px 14px; border-radius:999px; font-size:18px;">{top_act['opportunity_score']}%</span></h2>
             <p style="margin-top:10px; color:#4b5563;"><b>لماذا هذا النشاط؟</b> {reasons_text}</p>
-            <div style="margin-top:8px; color:#6b7280; font-size:13px;">
-                📊 الطلب: <b>{top_act['demand']}%</b> &nbsp;|&nbsp;
-                🏪 منافسين: <b>{top_act['existing']}</b> &nbsp;|&nbsp;
-                📈 تشبع: <b>{top_act['saturation']}%</b>
-            </div>
+            <p style="color:#9ca3af; font-size:12px;">⚠️ اقتراح مبدئي - غياب نشاط لا يعني بالضرورة وجود طلب</p>
         </div>
         """
 
-    # ====== تحليل النشاط المخصص ======
+    # تحليل النشاط المخصص
     custom_act_section = ""
     if a.get('custom_activity_analysis'):
         ca = a['custom_activity_analysis']
@@ -1235,10 +1582,8 @@ def build_report_html(a, pbc, lat, lng, radius):
         </div>
         """
 
-    # ====== المؤشرات الثلاث ======
-    opp = a['opportunity_score']
-    sat = a['saturation_score']
-    dem = a['demand_score']
+    # المؤشرات الثلاث
+    opp = a['opportunity_score']; sat = a['saturation_score']; dem = a['demand_score']
     metrics_section = f"""
     <div class="section">
         <h3>📊 المؤشرات الأساسية</h3>
@@ -1250,7 +1595,7 @@ def build_report_html(a, pbc, lat, lng, radius):
     </div>
     """
 
-    # ====== نقاط القوة والانتباه ======
+    # نقاط القوة والانتباه
     strengths_html = "".join(f"<li>✓ {s}</li>" for s in a['strengths'])
     cautions_html = "".join(f"<li>⚠ {c}</li>" for c in a['cautions'])
     points_section = f"""
@@ -1263,7 +1608,19 @@ def build_report_html(a, pbc, lat, lng, radius):
     </div>
     """
 
-    # ====== أفضل الأنشطة ======
+    # ما يحتاج تحقق ميداني - شفافية كاملة
+    needs_section = ""
+    if a.get('needs_verification'):
+        items_html = "".join(f"<li>🔍 {v}</li>" for v in a['needs_verification'])
+        needs_section = f"""
+        <div class="section" style="border-color:#f59e0b; background:rgba(245,158,11,0.05);">
+            <h3>🔍 ما يحتاج تحقق ميداني (لرفع دقة التحليل)</h3>
+            <p style="color:#6b7280; font-size:13px;">هذه البيانات غير متوفرة آلياً وتحتاج جمعاً ميدانياً منك:</p>
+            <ul class="point-list warn">{items_html}</ul>
+        </div>
+        """
+
+    # أفضل الأنشطة
     best_html = ""
     if a.get('best_activities'):
         for i, act in enumerate(a['best_activities'], 1):
@@ -1277,9 +1634,9 @@ def build_report_html(a, pbc, lat, lng, radius):
                 </div>
                 <div class="activity-score">{act['opportunity_score']}%</div>
             </div>"""
-    best_section = f"""<div class="section page-break"><h3>✅ أفضل الأنشطة المقترحة</h3>{best_html}</div>""" if best_html else ""
+    best_section = f"""<div class="section page-break"><h3>✅ أفضل الأنشطة المقترحة <span style="font-size:12px; color:#9ca3af;">(اقتراحات مبدئية)</span></h3>{best_html}</div>""" if best_html else ""
 
-    # ====== أسوأ الأنشطة ======
+    # أسوأ الأنشطة
     worst_html = ""
     if a.get('worst_activities'):
         for act in a['worst_activities']:
@@ -1295,7 +1652,7 @@ def build_report_html(a, pbc, lat, lng, radius):
             </div>"""
     worst_section = f"""<div class="section"><h3>❌ أنشطة يُنصح بتجنبها</h3>{worst_html}</div>""" if worst_html else ""
 
-    # ====== التحليل المالي ======
+    # التحليل المالي
     financial_section = ""
     if a.get('financial'):
         f = a['financial']
@@ -1307,8 +1664,6 @@ def build_report_html(a, pbc, lat, lng, radius):
             extras.append(f"<div class='kpi-small'><div class='kpi-small-label'>نقطة التعادل</div><div class='kpi-small-value'>{f['breakeven_daily']} عميل/يوم</div></div>")
         if f.get('payback_months'):
             extras.append(f"<div class='kpi-small'><div class='kpi-small-label'>استرداد رأس المال</div><div class='kpi-small-value'>{f['payback_months']} شهر</div></div>")
-        if f.get('rent_assessment'):
-            extras.append(f"<div class='kpi-small'><div class='kpi-small-label'>تقييم الإيجار</div><div class='kpi-small-value'>{f['rent_assessment']}</div></div>")
         extras_html = "<div class='kpis-row'>" + "".join(extras) + "</div>" if extras else ""
 
         financial_section = f"""
@@ -1325,29 +1680,13 @@ def build_report_html(a, pbc, lat, lng, radius):
                 <div class="metric"><div class="metric-label">💵 صافي الربح</div><div class="metric-value" style="color:{'#10b981' if f['net_profit_monthly']>0 else '#ef4444'};">{f['net_profit_monthly']:,.0f}</div><div class="metric-sub">ر.س/شهر</div></div>
             </div>
             {extras_html}
+            <p style="margin-top:14px; font-size:12px; color:#9ca3af;">
+                ⚠️ بناءً على أرقامك. الافتراضات: راتب موظف 4,000 ر.س، هامش ربح 35-50%، فواتير = مساحة × 8.
+            </p>
         </div>
         """
 
-    # ====== الموقع: المواقف والوصول والذروة ======
-    site_section = ""
-    if a.get('site_details'):
-        sd = a['site_details']
-        ph_rows = ""
-        for key in ['morning', 'noon', 'evening']:
-            p = sd['peak_hours'][key]
-            ph_rows += f"<tr><td>{p['label']}</td><td><b>{p['level']}</b></td></tr>"
-        site_section = f"""
-        <div class="section">
-            <h3>🚗 المواقف والوصول والكثافة</h3>
-            <div class="three-col">
-                <div class="col"><h4>🅿️ مواقف السيارات</h4><div class="col-value">{sd['parking_status']}</div><p>{sd['parking_detail']}</p></div>
-                <div class="col"><h4>🚗 سهولة الوصول</h4><div class="col-value">{sd['access_status']}</div><p>{sd['access_detail']}</p></div>
-                <div class="col"><h4>⏰ كثافة الذروة</h4><table class="peak-table">{ph_rows}</table><p>🔥 الأشد: <b>{sd['busiest_period']}</b></p></div>
-            </div>
-        </div>
-        """
-
-    # ====== DNA الحي ======
+    # DNA الحي
     dna_section = ""
     if a.get('dna'):
         d = a['dna']
@@ -1364,29 +1703,16 @@ def build_report_html(a, pbc, lat, lng, radius):
             </div>"""
         dna_section = f"""
         <div class="section">
-            <h3>🧬 DNA الحي</h3>
-            <div class="dna-main">الطابع الأقوى: <b>{d['main']}</b></div>
+            <h3>🧬 مؤشر تركيبة الحي <span style="font-size:12px; color:#9ca3af;">(تقديري)</span></h3>
+            <div class="dna-main">الطابع الأقوى المحتمل: <b>{d['main']}</b></div>
             {dna_bars}
+            <p style="font-size:12px; color:#9ca3af; margin-top:10px;">
+                ⚠️ مؤشر استدلالي مبني على نوع المحلات الموجودة - ليس بيانات سكانية فعلية للحي.
+            </p>
         </div>
         """
 
-    # ====== مقارنة المدينة ======
-    city_section = ""
-    if a.get('city_comparison'):
-        cc = a['city_comparison']
-        sign = "+" if cc['pct_diff'] >= 0 else ""
-        city_section = f"""
-        <div class="section">
-            <h3>🏙️ مقارنة مع متوسط المدن السعودية</h3>
-            <div class="city-compare">
-                <div><div class="cc-label">كثافة موقعك</div><div class="cc-value">{cc['density']}<small> محل/كم²</small></div></div>
-                <div><div class="cc-label">متوسط المدن</div><div class="cc-value" style="color:#94a3b8;">{cc['expected']}<small> محل/كم²</small></div></div>
-                <div><div class="cc-label">الفرق</div><div class="cc-value" style="color:{cc['color']};">{sign}{cc['pct_diff']:.0f}%</div><div style="color:{cc['color']}; font-size:11px;">{cc['status']}</div></div>
-            </div>
-        </div>
-        """
-
-    # ====== المنافسين ======
+    # المنافسين
     competitors_section = ""
     target = a.get('target_cat')
     if target and a.get('top_competitors'):
@@ -1400,10 +1726,13 @@ def build_report_html(a, pbc, lat, lng, radius):
                 <thead><tr><th>#</th><th>المنافس</th><th>المسافة</th></tr></thead>
                 <tbody>{comp_rows}</tbody>
             </table>
+            <p style="font-size:12px; color:#9ca3af; margin-top:10px;">
+                ⚠️ تقييمات وعدد المراجعات والقوة الفعلية للمنافسين غير متاحة (تحتاج Google Places API).
+            </p>
         </div>
         """
 
-    # ====== الأنشطة في المنطقة ======
+    # الأنشطة في المنطقة
     activities_section = ""
     if pbc:
         rows = ""
@@ -1420,13 +1749,13 @@ def build_report_html(a, pbc, lat, lng, radius):
         </div>
         """
 
-    # ====== الخدمات المفقودة ======
+    # الخدمات المفقودة
     missing_section = ""
     if a.get('missing_services'):
         items = "".join(f"<li>⚠️ {s}</li>" for s in a['missing_services'])
         missing_section = f"""<div class="section"><h3>🔍 خدمات أساسية مفقودة</h3><ul class="point-list warn">{items}</ul></div>"""
 
-    # ====== ملاحظات الصور ======
+    # تحليل الصور
     img_section = ""
     if a.get('image_results'):
         img_blocks = ""
@@ -1443,7 +1772,24 @@ def build_report_html(a, pbc, lat, lng, radius):
             """
         img_section = f"""<div class="section page-break"><h3>📸 تحليل صور الموقع</h3>{img_blocks}</div>"""
 
-    # ====== الـ CSS ======
+    # تحليل التقرير الميداني
+    field_report_section = ""
+    if a.get('field_report_analysis'):
+        fra = a['field_report_analysis']
+        insights = "".join(f"<li>💡 {i}</li>" for i in fra.get('key_insights', []))
+        warnings = "".join(f"<li>⚠️ {w}</li>" for w in fra.get('warnings_detected', []))
+        opps = "".join(f"<li>✨ {o}</li>" for o in fra.get('opportunities_detected', []))
+        field_report_section = f"""
+        <div class="section" style="border-color:#a855f7;">
+            <h3>📝 تحليل التقرير الميداني (AI)</h3>
+            <p style="color:#4b5563;"><b>الملخص:</b> {fra.get('summary', '-')}</p>
+            {f'<h4 style="color:#1d4ed8; margin-top:14px;">رؤى رئيسية:</h4><ul class="point-list">{insights}</ul>' if insights else ''}
+            {f'<h4 style="color:#047857; margin-top:14px;">فرص مكتشفة:</h4><ul class="point-list good">{opps}</ul>' if opps else ''}
+            {f'<h4 style="color:#b45309; margin-top:14px;">تحذيرات مكتشفة:</h4><ul class="point-list warn">{warnings}</ul>' if warnings else ''}
+        </div>
+        """
+
+    # CSS
     css = """
     <style>
         @media print {
@@ -1495,6 +1841,8 @@ def build_report_html(a, pbc, lat, lng, radius):
         .verdict h2 { font-size: 32px; margin: 8px 0 12px 0; }
         .verdict-score { color: #4b5563; font-size: 14px; margin-bottom: 14px; }
         .verdict-text { color: #374151; font-size: 14px; line-height: 1.8; }
+        .gov-stats { display: flex; gap: 20px; flex-wrap: wrap; color: #4b5563; font-size: 13px; }
+        .gov-stats > div { padding: 8px 12px; background: white; border-radius: 8px; }
         .metrics-grid {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 12px;
@@ -1512,8 +1860,6 @@ def build_report_html(a, pbc, lat, lng, radius):
         .three-col { grid-template-columns: 1fr 1fr 1fr; }
         .col { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
         .col h4 { font-size: 14px; margin-bottom: 8px; }
-        .col-value { font-size: 18px; font-weight: 800; color: #1f2937; margin: 8px 0; }
-        .col p { color: #6b7280; font-size: 12px; line-height: 1.6; }
         .point-list { list-style: none; padding: 0; }
         .point-list li { padding: 6px 0; font-size: 13px; color: #374151; }
         .point-list.good li { color: #047857; }
@@ -1536,29 +1882,15 @@ def build_report_html(a, pbc, lat, lng, radius):
             font-weight: 800; font-size: 16px; min-width: 60px; text-align: center;
         }
         .activity-score.bad { background: #fee2e2; color: #b91c1c; }
-        .verdict-box {
-            border: 2px solid; border-radius: 10px;
-            padding: 14px; margin-bottom: 14px;
-        }
+        .verdict-box { border: 2px solid; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
         .verdict-box h4 { font-size: 18px; margin-bottom: 6px; }
         .verdict-box p { color: #4b5563; font-size: 13px; }
-        .kpis-row {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 10px; margin-top: 12px;
-        }
-        .kpi-small {
-            background: white; border: 1px solid #e5e7eb;
-            border-radius: 8px; padding: 12px; text-align: center;
-        }
+        .kpis-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 12px; }
+        .kpi-small { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; text-align: center; }
         .kpi-small-label { color: #6b7280; font-size: 12px; margin-bottom: 4px; }
         .kpi-small-value { font-size: 16px; font-weight: 700; color: #1f2937; }
-        .peak-table, .comp-table {
-            width: 100%; border-collapse: collapse; margin-top: 8px;
-        }
-        .peak-table td, .comp-table td, .comp-table th {
-            padding: 8px; border-bottom: 1px solid #e5e7eb;
-            text-align: right; font-size: 13px;
-        }
+        .comp-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        .comp-table td, .comp-table th { padding: 8px; border-bottom: 1px solid #e5e7eb; text-align: right; font-size: 13px; }
         .comp-table th { background: #f3f4f6; color: #374151; font-weight: 700; }
         .dna-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
         .dna-label { min-width: 70px; color: #374151; font-size: 13px; font-weight: 600; }
@@ -1566,16 +1898,7 @@ def build_report_html(a, pbc, lat, lng, radius):
         .dna-fill { height: 100%; border-radius: 6px; }
         .dna-val { min-width: 40px; text-align: left; font-weight: 700; font-size: 13px; }
         .dna-main { color: #4b5563; margin-bottom: 12px; font-size: 14px; }
-        .city-compare {
-            display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; text-align: center;
-        }
-        .cc-label { color: #6b7280; font-size: 12px; margin-bottom: 6px; }
-        .cc-value { font-size: 26px; font-weight: 800; color: #1f2937; }
-        .cc-value small { font-size: 11px; color: #9ca3af; }
-        .img-block {
-            background: white; border: 1px solid #e5e7eb;
-            border-radius: 10px; padding: 14px; margin-bottom: 10px;
-        }
+        .img-block { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
         .img-block h4 { font-size: 15px; margin-bottom: 8px; color: #1f2937; }
         .img-block p { color: #4b5563; font-size: 13px; margin-bottom: 4px; }
         .footer {
@@ -1586,23 +1909,20 @@ def build_report_html(a, pbc, lat, lng, radius):
     </style>
     """
 
-    # ====== التذييل ======
     footer = """
     <div class="footer">
-        <p>📊 <b>GBI - الاستثمار الذكي</b> | تقرير تحليل آلي يعتمد على بيانات Mapbox و OpenStreetMap</p>
-        <p>⚠️ هذا التقرير يساعد في اتخاذ القرار لكن لا يغني عن الزيارة الميدانية ودراسة الجدوى التفصيلية</p>
+        <p>📊 <b>GBI - الاستثمار الذكي v3</b> | تقرير تحليل آلي يعتمد على بيانات Mapbox و GASTAT</p>
+        <p>⚠️ تحليل أولي - لا يغني عن دراسة جدوى مهنية وزيارة ميدانية</p>
     </div>
     """
 
-    # ====== شريط الطباعة (يختفي عند الطباعة) ======
     print_banner = """
     <div class="print-banner no-print">
-        💡 لحفظ التقرير كـ PDF: اضغط الزر ثم اختر "Save as PDF" أو "حفظ كـ PDF"
+        💡 لحفظ التقرير كـ PDF: اضغط الزر ثم اختر "Save as PDF"
         <button onclick="window.print()">🖨️ اطبع / احفظ PDF</button>
     </div>
     """
 
-    # ====== التجميع النهائي ======
     html = f"""<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
@@ -1613,7 +1933,9 @@ def build_report_html(a, pbc, lat, lng, radius):
 <body>
     {print_banner}
     {header}
+    {honesty}
     {decision_section}
+    {gov_section}
     {best_act_highlight}
     {custom_act_section}
     {metrics_section}
@@ -1621,27 +1943,21 @@ def build_report_html(a, pbc, lat, lng, radius):
     {best_section}
     {worst_section}
     {financial_section}
-    {site_section}
+    {field_report_section}
+    {needs_section}
     {dna_section}
-    {city_section}
     {competitors_section}
     {activities_section}
     {missing_section}
     {img_section}
     {footer}
-    <script>
-        // فتح تلقائي لمربع الطباعة بعد ثانية (اختياري)
-        // setTimeout(() => window.print(), 800);
-    </script>
 </body>
 </html>
 """
     return html
-
-
-# ============================================================
-# Top Bar
-# ============================================================
+# ============================================================================
+# [الدفعة 6] Top Bar + الواجهة
+# ============================================================================
 badges = []
 if MAPBOX:
     badges.append('<span class="badge-connected">● Mapbox</span>')
@@ -1657,7 +1973,7 @@ st.markdown(f"""
 <div class="top-bar">
     <div>
         <div class="brand">📊 GBI</div>
-        <div class="brand-sub">الاستثمار الذكي</div>
+        <div class="brand-sub">الاستثمار الذكي v3</div>
     </div>
     <div class="top-bar-left">
         {api_badge}
@@ -1672,26 +1988,44 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# تحذير الصدق في الأعلى
 st.markdown("""
-<div class="page-title">
-    <h1>لوحة التحكم</h1>
-    <p>نظرة عامة على الموقع المختار وتحليل الاستثمار الذكي</p>
+<div class="honesty-warning">
+    <div class="honesty-warning-icon">⚠️</div>
+    <div class="honesty-warning-text">
+        <b>تنبيه:</b> هذا التحليل أداة استكشاف أولية، <b>وليس دراسة جدوى مهنية</b>. 
+        لا يحتوي على تقييمات منافسين فعلية أو حركة عملاء حقيقية. 
+        <b>أكمل النموذج التفاعلي أدناه لرفع الثقة، وقم بزيارة ميدانية قبل القرار.</b>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ============================================================
-# Search Row
-# ============================================================
+st.markdown("""
+<div class="page-title">
+    <h1>لوحة التحكم</h1>
+    <p>أدخل البيانات أعلاه واملأ النموذج التفاعلي لرفع جودة الدراسة</p>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ============================================================================
+# [الدفعة 6] Search Row
+# ============================================================================
 sc1, sc2, sc3 = st.columns([5, 2, 2])
 with sc1:
-    url = st.text_input("url", placeholder="📍 أدخل رابط Google Maps أو إحداثيات (lat, lng)...", label_visibility="collapsed", key="url_input")
+    url = st.text_input("url", placeholder="📍 أدخل رابط Google Maps أو إحداثيات (lat, lng)...",
+                        label_visibility="collapsed", key="url_input")
 with sc2:
-    radius = st.selectbox("النطاق", [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0], index=2, format_func=lambda x: f"📏 نطاق {x} كم", label_visibility="collapsed")
+    radius = st.selectbox("النطاق", [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0], index=2,
+                          format_func=lambda x: f"📏 نطاق {x} كم", label_visibility="collapsed")
 with sc3:
     analyze_btn = st.button("🚀 بدء التحليل", type="primary", use_container_width=True)
 
-# الخيارات المتقدمة
-with st.expander("⚙️ خيارات متقدمة - النشاط المستهدف + بيانات مالية + صور (اختياري)"):
+
+# ============================================================================
+# [الدفعة 6] الخيارات المتقدمة + النموذج التفاعلي
+# ============================================================================
+with st.expander("⚙️ الخيارات المتقدمة - النشاط + البيانات المالية + الصور"):
     tab_act, tab_money, tab_img = st.tabs(["🎯 النشاط المستهدف", "💰 البيانات المالية", "📸 صور الموقع"])
 
     with tab_act:
@@ -1701,27 +2035,27 @@ with st.expander("⚙️ خيارات متقدمة - النشاط المستهد
         target_options.append(("__custom__", "✍️ نشاط مخصص (اكتبه بنفسي)"))
 
         target_idx = st.selectbox("target", options=range(len(target_options)),
-                                  format_func=lambda i: target_options[i][1], label_visibility="collapsed", key="target_select")
+                                  format_func=lambda i: target_options[i][1],
+                                  label_visibility="collapsed", key="target_select")
         selected_target = target_options[target_idx][0]
 
-        # خانة النشاط المخصص
         custom_activity = ""
         if selected_target == "__custom__":
             custom_activity = st.text_input(
                 "اكتب نشاطك التجاري بالتفصيل",
-                placeholder="مثال: محل عطور رجالية فاخرة | مشغل خياطة | محل تأجير دراجات نارية...",
+                placeholder="مثال: محل عطور رجالية فاخرة | مشغل خياطة | محل تأجير دراجات...",
                 key="custom_activity_input",
             )
             if custom_activity:
-                st.info(f"🤖 سيقوم الذكاء الاصطناعي بتحليل '{custom_activity}' بناءً على بيانات الموقع.")
+                st.info(f"🤖 سيقوم الذكاء الاصطناعي بتحليل '{custom_activity}'")
 
         st.session_state.target_activity = selected_target if selected_target not in ("", "__custom__") else None
         st.session_state.custom_activity = custom_activity.strip() if selected_target == "__custom__" else ""
 
-        st.caption("💡 اختر من القائمة، أو اكتب نشاطك بالتفصيل ليحلله الذكاء الاصطناعي، أو اتركه ليقترح النظام الأنسب.")
+        st.caption("💡 اختر من القائمة، أو اكتب نشاطك بالتفصيل، أو اتركه ليقترح النظام الأنسب.")
 
     with tab_money:
-        st.caption("📊 املأ ما تعرفه - النظام يحسب الجدوى المالية تلقائياً. الحقول الفارغة تُتجاهل.")
+        st.caption("📊 املأ ما تعرفه. الحقول الفارغة تُتجاهل.")
         fc1, fc2 = st.columns(2)
         with fc1:
             rent_yearly = st.number_input("💰 الإيجار السنوي المتوقع (ر.س)", min_value=0, value=0, step=5000, key="rent")
@@ -1738,167 +2072,468 @@ with st.expander("⚙️ خيارات متقدمة - النشاط المستهد
         }
 
     with tab_img:
-        st.caption("📸 ارفع صور للموقع (واجهة المحل، الشارع، المنطقة) ليحللها AI ويربطها بالتحليل.")
+        st.caption("📸 ارفع صور للموقع (الواجهة، الشارع، المنطقة)")
         if not AI_AVAILABLE:
-            st.warning("⚠️ تحليل الصور يحتاج GEMINI_API_KEY في Secrets.")
+            st.warning("⚠️ تحليل الصور يحتاج GEMINI_API_KEY")
         uploaded_images = st.file_uploader("اختر صور", type=['jpg', 'jpeg', 'png'],
                                             accept_multiple_files=True, key="img_upload",
                                             label_visibility="collapsed")
         if uploaded_images:
-            st.success(f"✅ {len(uploaded_images)} صورة جاهزة.")
+            st.success(f"✅ {len(uploaded_images)} صورة جاهزة")
         st.session_state.uploaded_images = uploaded_images or []
 
-# ============================================================
-# Analysis Trigger
-# ============================================================
+
+# ============================================================================
+# [الدفعة 6] النموذج التفاعلي الكبير (يرفع جودة الدراسة)
+# ============================================================================
+with st.expander("📋 ارفع جودة الدراسة - أدخل ما تعرفه عن الموقع ميدانياً (مهم جداً)"):
+    st.markdown("""
+    <div style="background:rgba(168,85,247,0.08); border:1px solid rgba(168,85,247,0.3); border-radius:12px; padding:14px; margin-bottom:14px;">
+        <div style="color:#c4b5fd; font-weight:600; font-size:14px; margin-bottom:6px;">💡 لماذا هذا النموذج؟</div>
+        <div style="color:#94a3b8; font-size:13px; line-height:1.6;">
+            البوت يستطيع تحليل بيانات Mapbox فقط. لكن <b>أنت تعرف الموقع أكثر</b>.
+            كل سؤال تجيب عليه يرفع دقة التحليل من 35% إلى 70%.
+            <br>كل الحقول <b>اختيارية</b> - أجب على ما تعرفه فقط.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    field_tabs = st.tabs([
+        "🚶 المشاهدات الميدانية",
+        "🏢 المنافسين",
+        "💰 السوق المالي",
+        "🎯 تفاصيل النشاط",
+        "📝 تقرير ميداني نصي"
+    ])
+
+    # ============== المشاهدات الميدانية ==============
+    with field_tabs[0]:
+        st.markdown('<div class="field-section-sub">معلومات من زيارتك للموقع - تساعد على تأكيد الحركة الفعلية</div>',
+                    unsafe_allow_html=True)
+        mc1, mc2 = st.columns(2)
+        with mc1:
+            site_visits = st.radio(
+                "🚶 كم مرة زرت الموقع؟",
+                ["لم أزره بعد", "مرة واحدة", "2-3 مرات", "4 مرات أو أكثر"],
+                key="fld_visits", horizontal=False)
+            visit_times = st.radio(
+                "⏰ في أي أوقات زرته؟",
+                ["لم أزره", "صباحاً فقط", "مساءً فقط", "صباحاً + مساءً", "كل الأوقات"],
+                key="fld_visit_times")
+            foot_traffic_level = st.radio(
+                "👥 كثافة المارّة (مشاة + سيارات) في الذروة",
+                ["لا أعرف", "ضعيف", "متوسط", "قوي"],
+                key="fld_foot_traffic")
+        with mc2:
+            people_counted = st.number_input(
+                "🔢 لو عددت المارّة في 30 دقيقة - كم العدد؟ (اتركه 0 لو ما عددت)",
+                min_value=0, value=0, step=5, key="fld_people_count")
+            pedestrians = st.radio(
+                "🚶‍♂️ نسبة المشاة مقابل السيارات",
+                ["لا أعرف", "أغلبهم سيارات", "متوازن", "أغلبهم مشاة"],
+                key="fld_pedestrians")
+            parking_actual = st.radio(
+                "🅿️ توفر المواقف فعلياً",
+                ["لا أعرف", "شحيحة جداً", "محدودة", "كافية", "وفيرة"],
+                key="fld_parking")
+
+        mc3, mc4 = st.columns(2)
+        with mc3:
+            visibility = st.radio(
+                "👀 ظهور الموقع من الشارع الرئيسي",
+                ["لا أعرف", "غير واضح", "متوسط", "بارز جداً"],
+                key="fld_visibility")
+            facade_quality = st.radio(
+                "🏪 جودة واجهة المحل المتاحة",
+                ["لا أعرف", "تحتاج تجهيز كامل", "متوسطة", "جيدة"],
+                key="fld_facade")
+        with mc4:
+            street_type = st.radio(
+                "🛣️ نوع الشارع",
+                ["لا أعرف", "فرعي ضيق", "فرعي عادي", "رئيسي ثنائي", "شارع تجاري رئيسي"],
+                key="fld_street")
+            future_projects = st.radio(
+                "🏗️ هل تعرف عن مشاريع تطوير قادمة؟",
+                ["لا أعرف", "لا يوجد", "مشاريع صغيرة", "مشاريع كبيرة"],
+                key="fld_future")
+
+    # ============== المنافسين ==============
+    with field_tabs[1]:
+        st.markdown('<div class="field-section-sub">معرفتك بالمنافسين تساعد في تقدير الخطر الفعلي</div>',
+                    unsafe_allow_html=True)
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            comp_visible = st.number_input(
+                "🏪 كم منافس شفته فعلياً مفتوح في المنطقة؟",
+                min_value=0, value=0, step=1, key="fld_comp_visible")
+            comp_strength = st.radio(
+                "💪 قوة المنافسين الموجودين",
+                ["لا أعرف", "ضعيف (أغلبهم محلات صغيرة)", "متوسط", "قوي (علامات معروفة)"],
+                key="fld_comp_strength")
+            comp_prices = st.radio(
+                "💵 مستوى أسعار المنافسين",
+                ["لا أعرف", "منخفض", "متوسط", "مرتفع", "متنوع"],
+                key="fld_comp_prices")
+        with cc2:
+            top_competitor_name = st.text_input(
+                "🏆 أقوى منافس حسب رأيك (الاسم)",
+                placeholder="مثال: Coffee F9", key="fld_top_comp")
+            comp_traffic = st.radio(
+                "👥 كثافة العملاء عند المنافسين",
+                ["لا أعرف", "هادئة", "متوسطة", "ممتلئة دائماً"],
+                key="fld_comp_traffic")
+            comp_weaknesses = st.text_area(
+                "🔍 نقاط ضعف المنافسين التي لاحظتها",
+                placeholder="مثال: خدمة بطيئة، أسعار مرتفعة، ساعات عمل محدودة...",
+                key="fld_comp_weak", height=80)
+
+    # ============== السوق المالي ==============
+    with field_tabs[2]:
+        st.markdown('<div class="field-section-sub">معلومات فعلية عن أسعار السوق</div>',
+                    unsafe_allow_html=True)
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            rent_market = st.radio(
+                "🏠 مستوى الإيجارات في الحي",
+                ["لا أعرف", "منخفض", "متوسط", "مرتفع", "مرتفع جداً"],
+                key="fld_rent_market")
+            actual_rent_known = st.number_input(
+                "💰 لو تواصلت مع المالك - كم الإيجار السنوي؟ (ر.س)",
+                min_value=0, value=0, step=5000, key="fld_actual_rent")
+            setup_estimate = st.radio(
+                "🏗️ تقدير تكلفة التجهيز",
+                ["لم أحسب", "بسيط (<50 ألف)", "متوسط (50-150 ألف)", "كبير (150-500 ألف)", "ضخم (>500 ألف)"],
+                key="fld_setup_est")
+        with sc2:
+            local_costs = st.radio(
+                "💵 تكاليف التشغيل في الحي مقارنة بمدن أخرى",
+                ["لا أعرف", "أقل من المعتاد", "معتاد", "أعلى من المعتاد"],
+                key="fld_local_costs")
+            avg_local_income = st.radio(
+                "💸 مستوى الدخل المتوقع لسكان الحي",
+                ["لا أعرف", "منخفض", "متوسط", "مرتفع", "مرتفع جداً"],
+                key="fld_income")
+            spending_power = st.radio(
+                "🛒 القدرة الشرائية في النشاط المستهدف",
+                ["لا أعرف", "ضعيفة", "متوسطة", "قوية"],
+                key="fld_spending")
+
+    # ============== تفاصيل النشاط ==============
+    with field_tabs[3]:
+        st.markdown('<div class="field-section-sub">معلومات عن نشاطك الشخصي</div>',
+                    unsafe_allow_html=True)
+        nc1, nc2 = st.columns(2)
+        with nc1:
+            target_audience = st.radio(
+                "🎯 الفئة المستهدفة",
+                ["لم أحدد", "شباب 15-30", "عائلات", "موظفون", "كبار السن", "متنوعة"],
+                key="fld_audience")
+            experience_level = st.radio(
+                "📚 خبرتك في النشاط",
+                ["لا خبرة", "خبرة محدودة", "خبرة جيدة", "خبرة واسعة"],
+                key="fld_experience")
+            competitive_advantage = st.text_area(
+                "✨ ميزتك التنافسية (ما يميّزك عن المنافسين)",
+                placeholder="مثال: منتج عضوي 100%، خدمة 24 ساعة، أسعار أقل بـ20%...",
+                key="fld_advantage", height=80)
+        with nc2:
+            available_capital = st.radio(
+                "💼 رأس المال المتاح",
+                ["لم أحدد", "أقل من 50 ألف", "50-150 ألف", "150-500 ألف", "أكثر من 500 ألف"],
+                key="fld_capital")
+            backup_capital = st.radio(
+                "💰 احتياطي مالي لـ 6 شهور",
+                ["لا يوجد", "احتياطي محدود", "احتياطي كافٍ", "احتياطي ممتاز"],
+                key="fld_backup")
+            marketing_plan = st.radio(
+                "📣 خطة التسويق",
+                ["لا توجد", "بسيطة (سوشال ميديا)", "متوسطة", "احترافية"],
+                key="fld_marketing")
+
+    # ============== التقرير الميداني النصي ==============
+    with field_tabs[4]:
+        st.markdown("""
+        <div class="field-section-sub">
+        اكتب وصفاً نصياً للموقع (200-500 كلمة).
+        كل ما لاحظته من زيارتك: الحركة، المنافسة، الفرص، التحديات.
+        <b>AI سيحلل النص ويستخرج منه رؤى تُضاف للتحليل.</b>
+        </div>
+        """, unsafe_allow_html=True)
+
+        field_report = st.text_area(
+            "📝 تقرير ميداني (نص حر)",
+            placeholder="""مثال:
+زرت الموقع 3 مرات في أوقات مختلفة. لاحظت أن الحركة في المساء أعلى بكثير من الصباح.
+يوجد مقهيين قريبين لكن واحد منهم خدمته بطيئة.
+الشارع رئيسي والمواقف كافية. هناك مشروع تجاري قادم على بُعد 200 متر.
+الفئة الغالبة شباب، والقدرة الشرائية تبدو متوسطة...""",
+            key="fld_report_text", height=200)
+        if field_report and AI_AVAILABLE:
+            st.info(f"🤖 AI سيحلل تقريرك ({len(field_report.split())} كلمة) ويستخرج رؤى مفيدة.")
+
+    # حفظ كل البيانات الميدانية
+    st.session_state.field_inputs = {
+        'site_visits': site_visits,
+        'visit_times': visit_times,
+        'foot_traffic_level': foot_traffic_level if foot_traffic_level != "لا أعرف" else "",
+        'people_counted': people_counted,
+        'pedestrians': pedestrians,
+        'parking_actual': parking_actual,
+        'visibility': visibility,
+        'facade_quality': facade_quality,
+        'street_type': street_type,
+        'future_projects': future_projects,
+        'comp_visible': comp_visible,
+        'comp_strength': comp_strength,
+        'comp_prices': comp_prices,
+        'top_competitor_name': top_competitor_name,
+        'comp_traffic': comp_traffic,
+        'comp_weaknesses': comp_weaknesses,
+        'rent_market': rent_market,
+        'actual_rent_known': actual_rent_known,
+        'setup_estimate': setup_estimate,
+        'local_costs': local_costs,
+        'avg_local_income': avg_local_income,
+        'spending_power': spending_power,
+        'target_audience': target_audience,
+        'experience_level': experience_level,
+        'competitive_advantage': competitive_advantage,
+        'available_capital': available_capital,
+        'backup_capital': backup_capital,
+        'marketing_plan': marketing_plan,
+        'field_report_text': field_report,
+    }
+
+    # مؤشر اكتمال الدراسة
+    filled = sum(1 for v in st.session_state.field_inputs.values()
+                 if v and str(v) not in ["", "لا أعرف", "لم أحدد", "لم أزره بعد", "لا توجد", "لا يوجد", "0", "لم أحسب", "لا خبرة"])
+    total_fields = len(st.session_state.field_inputs)
+    completion_pct = int((filled / total_fields) * 100) if total_fields else 0
+    
+    st.markdown(f"""
+    <div class="completion-bar">
+        <div class="completion-title">
+            📊 اكتمال البيانات الميدانية: <b>{completion_pct}%</b> ({filled}/{total_fields} حقل)
+        </div>
+        <div class="completion-fill">
+            <div class="completion-fill-inner" style="width:{completion_pct}%;"></div>
+        </div>
+        <div style="color:#94a3b8; font-size:12px; margin-top:8px;">
+            💡 كلما زادت البيانات الميدانية، ارتفعت ثقة التحليل (سقف +25%)
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+# ============================================================================
+# [الدفعة 7] محرّك التحليل - عند ضغط الزر
+# ============================================================================
 if analyze_btn:
     if not MAPBOX:
-        st.error("⚠️ مفتاح MAPBOX_TOKEN غير موجود.")
-    elif not url:
-        st.error("⚠️ الرجاء إدخال رابط أو إحداثيات.")
-    else:
-        progress = st.progress(0)
-        status = st.empty()
-        status.markdown('<p class="progress-msg">⏳ 5% - استخراج الإحداثيات...</p>', unsafe_allow_html=True)
-        progress.progress(5)
-        lat, lng = extract_coords(url)
-        if not lat:
-            progress.empty(); status.empty()
-            st.error("❌ تعذّر استخراج الإحداثيات.")
-        else:
-            status.markdown(f'<p class="progress-msg">📍 15% - الموقع: {lat:.5f}, {lng:.5f}</p>', unsafe_allow_html=True)
-            progress.progress(15)
-            status.markdown('<p class="progress-msg">🔍 35% - البحث عبر Mapbox...</p>', unsafe_allow_html=True)
-            progress.progress(35)
-            pbc = comprehensive_scan(lat, lng, radius)
-            status.markdown('<p class="progress-msg">🧠 55% - التحليل...</p>', unsafe_allow_html=True)
-            progress.progress(55)
-            a = analyze(pbc, radius, st.session_state.target_activity)
+        st.error("❌ MAPBOX_TOKEN غير موجود. أضفه في secrets ثم أعد المحاولة.")
+        st.stop()
+    if not url:
+        st.warning("⚠️ أدخل رابط أو إحداثيات الموقع.")
+        st.stop()
 
-            # DNA الحي
-            a['dna'] = neighborhood_dna(pbc)
+    lat, lng = extract_coords(url)
+    if not (lat and lng):
+        st.error("❌ تعذّر استخراج الإحداثيات. تأكد من صحة الرابط.")
+        st.stop()
 
-            # ترتيب كل الأنشطة
-            best_acts, worst_acts = rank_all_activities(pbc, a['dna'], a['traffic_score'], a['pop_score'], a['accessibility_score'])
-            a['best_activities'] = best_acts
-            a['worst_activities'] = worst_acts
+    progress = st.progress(0)
+    status = st.empty()
 
-            # مؤشر الثقة
-            a['confidence'] = confidence_score(pbc, a['total_places'], radius)
+    status.markdown('<p class="progress-msg">🔍 5% - استخراج الإحداثيات...</p>', unsafe_allow_html=True)
+    progress.progress(5)
 
-            # مقارنة المدينة
-            a['city_comparison'] = city_comparison(a['total_places'], radius)
+    # تحديد المحافظة
+    status.markdown('<p class="progress-msg">🏛️ 12% - تحديد المحافظة...</p>', unsafe_allow_html=True)
+    progress.progress(12)
+    gov_info = find_governorate_by_coords(lat, lng)
 
-            # مواقف وذروة
-            status.markdown('<p class="progress-msg">🚗 70% - المواقف والوصول...</p>', unsafe_allow_html=True)
-            progress.progress(70)
-            a['site_details'] = analyze_parking_and_access(pbc)
+    # المسح الشامل
+    status.markdown('<p class="progress-msg">🌐 25% - مسح المحلات (33 فئة)...</p>', unsafe_allow_html=True)
+    progress.progress(25)
+    pbc = comprehensive_scan(lat, lng, radius)
+    if not pbc:
+        progress.empty(); status.empty()
+        st.warning("⚠️ لم نعثر على محلات في النطاق المحدد. جرّب نطاقاً أوسع.")
+        st.stop()
 
-            # مالي
-            fin = st.session_state.get('fin_inputs', {})
-            if fin and any(fin.values()):
-                status.markdown('<p class="progress-msg">💰 80% - التحليل المالي...</p>', unsafe_allow_html=True)
-                progress.progress(80)
-                a['financial'] = financial_analysis(
-                    fin.get('rent_yearly'), fin.get('setup_cost'), fin.get('area_sqm'),
-                    fin.get('employees'), fin.get('avg_ticket'), fin.get('daily_customers'),
-                    target_cat=st.session_state.target_activity, total_places=a['total_places']
-                )
+    status.markdown('<p class="progress-msg">📊 55% - تحليل البيانات...</p>', unsafe_allow_html=True)
+    progress.progress(55)
 
-            # صور
-            imgs = st.session_state.get('uploaded_images', [])
-            if imgs and AI_AVAILABLE:
-                status.markdown(f'<p class="progress-msg">📸 85% - تحليل {len(imgs)} صورة...</p>', unsafe_allow_html=True)
-                progress.progress(85)
-                image_results = []
-                ctx = f"الموقع: {a['total_places']} محل، {a['area_type']}"
-                for img_file in imgs:
-                    try:
-                        pil_img = Image.open(img_file)
-                        result = analyze_image_with_ai(pil_img, ctx)
-                        if result:
-                            image_results.append(result)
-                    except Exception:
-                        continue
-                if image_results:
-                    a = integrate_image_analysis(image_results, a)
+    # هل توجد بيانات ميدانية مفيدة؟
+    fi = st.session_state.field_inputs
+    has_field_data = bool(
+        (fi.get('site_visits') and fi.get('site_visits') != 'لم أزره بعد') or
+        fi.get('foot_traffic_level') or
+        fi.get('comp_visible', 0) > 0 or
+        fi.get('actual_rent_known', 0) > 0 or
+        fi.get('field_report_text', '').strip()
+    )
 
-            if AI_AVAILABLE:
-                status.markdown('<p class="progress-msg">✨ 92% - تحسين عبر AI...</p>', unsafe_allow_html=True)
-                progress.progress(92)
-                a = ai_enhance(a, pbc, lat, lng)
+    a = analyze(pbc, radius, target_cat=st.session_state.target_activity, gov_info=gov_info, field_data=fi)
+    a['dna'] = neighborhood_dna(pbc)
 
-            # تحليل النشاط المخصص (إن وجد)
-            custom_act = st.session_state.get('custom_activity', '').strip()
-            if custom_act:
-                status.markdown(f'<p class="progress-msg">✍️ 96% - تحليل نشاطك المخصص: {custom_act[:30]}...</p>', unsafe_allow_html=True)
-                progress.progress(96)
-                a['custom_activity_analysis'] = analyze_custom_activity(custom_act, a, pbc, lat, lng)
-            st.session_state.analysis = {'lat': lat, 'lng': lng, 'radius': radius, 'places_by_cat': pbc, 'analysis': a}
-            st.session_state.chat = []
-            status.markdown('<p class="progress-msg">✅ 100% - اكتمل!</p>', unsafe_allow_html=True)
-            progress.progress(100)
-            time.sleep(0.3)
-            progress.empty(); status.empty()
-            st.rerun()
+    status.markdown('<p class="progress-msg">🎯 65% - تصنيف الأنشطة...</p>', unsafe_allow_html=True)
+    progress.progress(65)
+    best, worst = rank_all_activities(pbc, a['dna'], a['traffic_score'], a['pop_score'], a['accessibility_score'], field_data=fi)
+    a['best_activities'] = best
+    a['worst_activities'] = worst
 
-# ============================================================
-# Display Results - بترتيب جديد (الأهم في الأعلى)
-# ============================================================
-if st.session_state.analysis:
+    # التحليل المالي (إن وجدت أرقام)
+    fin_in = st.session_state.fin_inputs
+    if any(fin_in.values()):
+        status.markdown('<p class="progress-msg">💰 75% - تحليل مالي...</p>', unsafe_allow_html=True)
+        progress.progress(75)
+        a['financial'] = financial_analysis(
+            rent_yearly=fin_in.get('rent_yearly', 0),
+            setup_cost=fin_in.get('setup_cost', 0),
+            area_sqm=fin_in.get('area_sqm', 0),
+            employees=fin_in.get('employees', 0),
+            avg_ticket=fin_in.get('avg_ticket', 0),
+            daily_customers=fin_in.get('daily_customers', 0),
+            target_cat=st.session_state.target_activity,
+            total_places=a['total_places']
+        )
+
+    # تحليل الصور
+    if st.session_state.uploaded_images and AI_AVAILABLE:
+        status.markdown(f'<p class="progress-msg">📸 82% - تحليل {len(st.session_state.uploaded_images)} صورة...</p>',
+                        unsafe_allow_html=True)
+        progress.progress(82)
+        image_results = []
+        ctx = f"الموقع: {lat:.4f}, {lng:.4f}، النطاق {radius} كم"
+        if gov_info:
+            ctx += f"، المحافظة: {gov_info['name']}"
+        for img_file in st.session_state.uploaded_images:
+            try:
+                img = Image.open(img_file)
+                result = analyze_image_with_ai(img, ctx)
+                if result:
+                    image_results.append(result)
+            except Exception:
+                pass
+        if image_results:
+            a = integrate_image_analysis(image_results, a)
+
+    # AI enhancement
+    if AI_AVAILABLE:
+        status.markdown('<p class="progress-msg">✨ 88% - تحسين عبر AI...</p>', unsafe_allow_html=True)
+        progress.progress(88)
+        a = ai_enhance(a, pbc, lat, lng)
+
+    # تحليل النشاط المخصص
+    custom_act = st.session_state.get('custom_activity', '').strip()
+    if custom_act:
+        status.markdown(f'<p class="progress-msg">✍️ 92% - تحليل نشاطك: {custom_act[:30]}...</p>',
+                        unsafe_allow_html=True)
+        progress.progress(92)
+        a['custom_activity_analysis'] = analyze_custom_activity(custom_act, a, pbc, lat, lng)
+
+    # تحليل التقرير الميداني النصي
+    field_report_text = fi.get('field_report_text', '').strip()
+    if field_report_text and AI_AVAILABLE and len(field_report_text.split()) >= 20:
+        status.markdown('<p class="progress-msg">📝 96% - تحليل تقريرك الميداني...</p>',
+                        unsafe_allow_html=True)
+        progress.progress(96)
+        fra = analyze_field_report(field_report_text, a, pbc, lat, lng)
+        if fra:
+            a['field_report_analysis'] = fra
+
+    # حساب الثقة النهائية
+    a['confidence'] = confidence_score(
+        pbc, a['total_places'], radius,
+        has_field_data=has_field_data,
+        has_gov_data=bool(gov_info)
+    )
+
+    st.session_state.analysis = {
+        'lat': lat, 'lng': lng, 'radius': radius,
+        'places_by_cat': pbc, 'analysis': a
+    }
+    st.session_state.chat = []
+
+    status.markdown('<p class="progress-msg">✅ 100% - اكتمل التحليل!</p>', unsafe_allow_html=True)
+    progress.progress(100)
+    time.sleep(0.4)
+    progress.empty(); status.empty()
+    st.rerun()
+
+
+# ============================================================================
+# [الدفعة 7] عرض النتائج
+# ============================================================================
+if not st.session_state.analysis:
+    # رسالة ترحيب
+    st.markdown("""
+    <div style="text-align:center; padding:60px 20px; background:#131826; border-radius:18px; margin-top:20px; border:1px solid #1f2937;">
+        <div style="font-size:64px; margin-bottom:16px;">📊</div>
+        <h2 style="color:white; margin-bottom:12px;">ابدأ تحليلك الآن</h2>
+        <p style="color:#94a3b8; font-size:15px; max-width:600px; margin:0 auto; line-height:1.7;">
+            أدخل رابط Google Maps أو إحداثيات الموقع في الأعلى.<br>
+            <b style="color:#fbbf24;">لرفع جودة التحليل: املأ النموذج التفاعلي ببياناتك الميدانية.</b>
+        </p>
+        <div style="margin-top:24px; display:flex; gap:14px; justify-content:center; flex-wrap:wrap;">
+            <div style="background:#1f2937; padding:10px 18px; border-radius:999px; color:#cbd5e1; font-size:13px;">
+                ✓ 134 محافظة سعودية
+            </div>
+            <div style="background:#1f2937; padding:10px 18px; border-radius:999px; color:#cbd5e1; font-size:13px;">
+                ✓ 33 فئة محلات
+            </div>
+            <div style="background:#1f2937; padding:10px 18px; border-radius:999px; color:#cbd5e1; font-size:13px;">
+                ✓ بيانات GASTAT 2022
+            </div>
+            <div style="background:#1f2937; padding:10px 18px; border-radius:999px; color:#cbd5e1; font-size:13px;">
+                ✓ تحليل AI تفاعلي
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+else:
     data = st.session_state.analysis
     a = data['analysis']
     pbc = data['places_by_cat']
-    lat, lng, radius = data['lat'], data['lng'], data['radius']
+    lat, lng = data['lat'], data['lng']
+    radius = data['radius']
+    conf = a.get('confidence', {})
 
-    # ════════════════════════════════════════════════════
-    # 1️⃣ القرار النهائي (الأهم) + نطاق التحليل + الثقة
-    # ════════════════════════════════════════════════════
-    score = a['investment_score']
-    conf = a.get('confidence', {'score': 50, 'level': 'متوسطة', 'color': '#94a3b8'})
+    # ═══════════════════════════════════════════════════════
+    # 🎯 القرار النهائي
+    # ═══════════════════════════════════════════════════════
+    decision_text = a.get('ai_recommendation') if a.get('ai_enhanced') else a['decision_summary']
+    target_cat_name = ""
+    if a.get('target_cat'):
+        target_cat_name = f' • النشاط: {CATEGORIES[a["target_cat"]]["icon"]} {CATEGORIES[a["target_cat"]]["name"]}'
 
-    ai_rec = a.get('ai_recommendation') if a.get('ai_enhanced') else a['decision_summary']
-
-    # شريط معلومات سريع: النطاق + الثقة
-    info_bar_html = f"""
-    <div style="display:flex; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
-        <div style="background:#131826; border:1px solid #1f2937; padding:8px 16px; border-radius:999px; color:#94a3b8; font-size:13px;">
-            📏 نطاق التحليل: <b style="color:white;">{radius} كم</b>
-        </div>
-        <div style="background:#131826; border:1px solid #1f2937; padding:8px 16px; border-radius:999px; color:#94a3b8; font-size:13px;">
-            🎯 ثقة التحليل: <b style="color:{conf['color']};">{conf['score']}% ({conf['level']})</b>
-        </div>
-        <div style="background:#131826; border:1px solid #1f2937; padding:8px 16px; border-radius:999px; color:#94a3b8; font-size:13px;">
-            📍 الموقع: <b style="color:white;">{lat:.4f}, {lng:.4f}</b>
-        </div>
-    </div>
-    """
-    st.markdown(info_bar_html, unsafe_allow_html=True)
-
-    # بطاقة القرار الكبيرة
     decision_card = f"""
-    <div class="verdict-card" style="border-color: {a['decision_color']}; background: linear-gradient(135deg, {a['decision_bg']} 0%, #131826 100%);">
+    <div class="verdict-card" style="border-color:{a['decision_color']}; background:linear-gradient(135deg, {a['decision_bg']} 0%, #131826 100%);">
         <div class="verdict-header">
             <div>
-                <div style="color:#94a3b8; font-size:13px; font-weight:600; margin-bottom:4px;">🎯 القرار النهائي</div>
+                <div style="color:#94a3b8; font-size:13px; font-weight:600;">🎯 القرار النهائي</div>
                 <div class="verdict-title" style="color:{a['decision_color']};">{a['decision_emoji']} {a['decision']}</div>
-                <div class="verdict-score">نقاط الاستثمار: <b style="color:white;">{score}/100</b></div>
+                <div class="verdict-score">نقاط الاستثمار: <b style="color:white;">{a['investment_score']}/100</b>
+                    &nbsp;|&nbsp; ثقة التحليل: <b style="color:{conf.get('color', '#94a3b8')};">{conf.get('score', 0)}% ({conf.get('level', '-')})</b>
+                </div>
             </div>
             <div class="verdict-emoji">{a['decision_emoji']}</div>
         </div>
-        <div class="verdict-reason">{ai_rec}</div>
+        <div class="verdict-reason">{decision_text}</div>
         <div class="verdict-tags">
-    """
-    for s in a['strengths'][:3]:
-        decision_card += f'<span class="verdict-tag" style="border-right: 3px solid #10b981;">✓ {s}</span>'
-    for c in a['cautions'][:2]:
-        decision_card += f'<span class="verdict-tag" style="border-right: 3px solid #f59e0b;">⚠ {c}</span>'
+            <div class="verdict-tag">📍 {lat:.4f}, {lng:.4f}</div>
+            <div class="verdict-tag">📏 {radius} كم</div>
+            <div class="verdict-tag">🏪 {a['total_places']} محل</div>
+            <div class="verdict-tag">🌆 {a['area_type']}</div>"""
+    if a.get('target_cat'):
+        decision_card += f'<div class="verdict-tag">{target_cat_name.replace(" • النشاط:", "🎯")}</div>'
+    if a.get('gov_info'):
+        decision_card += f'<div class="verdict-tag">🏛️ {a["gov_info"]["name"]}</div>'
     decision_card += "</div></div>"
     st.markdown(decision_card, unsafe_allow_html=True)
 
-    # ════════════════════════════════════════════════════
-    # 🎯 أفضل نشاط مقترح (يظهر فقط لو ما اختار نشاطاً)
-    # ════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════
+    # 🎯 أفضل نشاط مقترح (لو ما حدد)
+    # ═══════════════════════════════════════════════════════
     if not a.get('target_cat') and a.get('best_activities'):
         top_act = a['best_activities'][0]
         reasons_text = " • ".join(top_act['reasons'])
@@ -1913,8 +2548,8 @@ if st.session_state.analysis:
                     </div>
                     <div style="display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:#cbd5e1;">
                         <span>📊 الطلب: <b style="color:#10b981;">{top_act['demand']}%</b></span>
-                        <span>🏪 المنافسين الحاليين: <b>{top_act['existing']}</b></span>
-                        <span>📈 التشبع: <b>{top_act['saturation']}%</b></span>
+                        <span>🏪 منافسين: <b>{top_act['existing']}</b></span>
+                        <span>📈 تشبع: <b>{top_act['saturation']}%</b></span>
                     </div>
                 </div>
                 <div style="background:rgba(16,185,129,0.2); color:#10b981; padding:14px 22px; border-radius:14px; text-align:center; min-width:120px;">
@@ -1923,13 +2558,13 @@ if st.session_state.analysis:
                 </div>
             </div>
             <div style="margin-top:14px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08); color:#94a3b8; font-size:12px;">
-                ℹ️ شاهد القائمة الكاملة لأفضل وأسوأ الأنشطة بالأسفل، أو حدّد نشاطك في "الخيارات المتقدمة" لتحليل أعمق.
+                ⚠️ اقتراح مبدئي - غياب نشاط لا يعني بالضرورة وجود طلب فعلي.
             </div>
             </div>""", unsafe_allow_html=True)
 
-    # ════════════════════════════════════════════════════
-    # ✍️ تحليل النشاط المخصص (إن كتب المستخدم نشاطاً)
-    # ════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════
+    # ✍️ تحليل النشاط المخصص
+    # ═══════════════════════════════════════════════════════
     if a.get('custom_activity_analysis'):
         ca = a['custom_activity_analysis']
         vc = ca.get('verdict_color', '#94a3b8')
@@ -1957,415 +2592,407 @@ if st.session_state.analysis:
             <div style="color:#94a3b8; font-size:13px; margin-bottom:8px;">
                 🏪 منافسون مشابهون مقدّرون: <b style="color:#f59e0b;">{ca.get('similar_competitors', 0)}</b>
             </div>
-            {f'<div style="margin-top:12px;"><div style="color:#10b981; font-size:13px; font-weight:600; margin-bottom:6px;">✨ الفرص المتاحة لهذا النشاط:</div><ul style="margin:0; padding-right:18px;">{opps_html}</ul></div>' if opps_html else ''}
-            {f'<div style="margin-top:12px;"><div style="color:#f59e0b; font-size:13px; font-weight:600; margin-bottom:6px;">⚠️ تحذيرات يجب الانتباه لها:</div><ul style="margin:0; padding-right:18px;">{risks_html}</ul></div>' if risks_html else ''}
+            {f'<div style="margin-top:12px;"><div style="color:#10b981; font-size:13px; font-weight:600; margin-bottom:6px;">✨ الفرص:</div><ul style="margin:0; padding-right:18px;">{opps_html}</ul></div>' if opps_html else ''}
+            {f'<div style="margin-top:12px;"><div style="color:#f59e0b; font-size:13px; font-weight:600; margin-bottom:6px;">⚠️ التحذيرات:</div><ul style="margin:0; padding-right:18px;">{risks_html}</ul></div>' if risks_html else ''}
             </div>""", unsafe_allow_html=True)
 
-    # ════════════════════════════════════════════════════
-    # 📄 زر تصدير التقرير PDF
-    # ════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════
+    # 📄 زر تصدير PDF
+    # ═══════════════════════════════════════════════════════
     from datetime import datetime
     report_filename = f"GBI_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.html"
     report_html = build_report_html(a, pbc, lat, lng, radius)
     ec1, ec2, ec3 = st.columns([1, 2, 1])
     with ec2:
         st.download_button(
-            label="📄 تصدير التقرير الكامل (PDF)",
+            label="📄 تصدير التقرير الكامل (HTML قابل للطباعة PDF)",
             data=report_html.encode('utf-8'),
             file_name=report_filename,
             mime="text/html",
             use_container_width=True,
-            help="حمّل التقرير ثم افتحه واضغط 'اطبع / احفظ PDF' لحفظه كملف PDF",
         )
-    st.caption("💡 افتح الملف المُحمّل، ثم اضغط على زر 'اطبع / احفظ PDF' بالأعلى لحفظه كملف PDF عبر متصفحك.")
+    st.caption("💡 افتح الملف المُحمّل ثم اضغط 'اطبع / احفظ PDF' بالأعلى")
 
-    # ════════════════════════════════════════════════════
-    # 2️⃣ المؤشرات الثلاث الرئيسية (Opportunity/Saturation/Demand)
-    # ════════════════════════════════════════════════════
-    st.markdown('<div class="section-title">📊 المؤشرات الأساسية للموقع</div>', unsafe_allow_html=True)
-
-    opp = a['opportunity_score']
-    sat = a['saturation_score']
-    dem = a['demand_score']
-
-    opp_c = "#10b981" if opp >= 60 else "#f59e0b" if opp >= 35 else "#ef4444"
-    sat_c = "#ef4444" if sat >= 70 else "#f59e0b" if sat >= 40 else "#10b981"
-    dem_c = "#10b981" if dem >= 65 else "#f59e0b" if dem >= 40 else "#ef4444"
-
-    bc1, bc2, bc3 = st.columns(3)
-    with bc1:
+    # ═══════════════════════════════════════════════════════
+    # 📊 المؤشرات الثلاث
+    # ═══════════════════════════════════════════════════════
+    st.markdown('<div class="section-title">📊 المؤشرات الأساسية</div>', unsafe_allow_html=True)
+    m1, m2, m3 = st.columns(3)
+    opp = a['opportunity_score']; sat = a['saturation_score']; dem = a['demand_score']
+    
+    opp_color = '#10b981' if opp >= 60 else '#f59e0b' if opp >= 35 else '#ef4444'
+    sat_color = '#ef4444' if sat >= 70 else '#f59e0b' if sat >= 40 else '#10b981'
+    dem_color = '#10b981' if dem >= 65 else '#f59e0b' if dem >= 40 else '#ef4444'
+    
+    with m1:
         st.markdown(f"""<div class="big-metric">
             <div class="big-metric-icon">🎯</div>
             <div class="big-metric-label">فرصة الدخول</div>
-            <div class="big-metric-value" style="color:{opp_c};">{opp}<span style="font-size:20px;color:#64748b;">%</span></div>
-            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{opp}%; background:{opp_c};"></div></div>
-            <div class="big-metric-sub">{'فرصة قوية للدخول' if opp>=60 else 'فرصة متوسطة' if opp>=35 else 'فرصة ضعيفة'}</div>
-            </div>""", unsafe_allow_html=True)
-    with bc2:
+            <div class="big-metric-value" style="color:{opp_color};">{opp}<span style="font-size:24px;">%</span></div>
+            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{opp}%; background:{opp_color};"></div></div>
+            <div class="big-metric-sub">نسبة احتمال نجاح فتح نشاط جديد</div>
+        </div>""", unsafe_allow_html=True)
+    with m2:
         st.markdown(f"""<div class="big-metric">
             <div class="big-metric-icon">📈</div>
             <div class="big-metric-label">تشبع السوق</div>
-            <div class="big-metric-value" style="color:{sat_c};">{sat}<span style="font-size:20px;color:#64748b;">%</span></div>
-            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{sat}%; background:{sat_c};"></div></div>
-            <div class="big-metric-sub">{'سوق مشبع' if sat>=70 else 'إشباع متوسط' if sat>=40 else 'سوق منفتح'}</div>
-            </div>""", unsafe_allow_html=True)
-    with bc3:
+            <div class="big-metric-value" style="color:{sat_color};">{sat}<span style="font-size:24px;">%</span></div>
+            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{sat}%; background:{sat_color};"></div></div>
+            <div class="big-metric-sub">{"مشبع - منافسة عالية" if sat >= 70 else "متوسط" if sat >= 40 else "فرصة لدخول السوق"}</div>
+        </div>""", unsafe_allow_html=True)
+    with m3:
         st.markdown(f"""<div class="big-metric">
             <div class="big-metric-icon">🔥</div>
             <div class="big-metric-label">الطلب المتوقع</div>
-            <div class="big-metric-value" style="color:{dem_c};">{dem}<span style="font-size:20px;color:#64748b;">%</span></div>
-            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{dem}%; background:{dem_c};"></div></div>
-            <div class="big-metric-sub">{'طلب مرتفع' if dem>=65 else 'طلب متوسط' if dem>=40 else 'طلب ضعيف'}</div>
-            </div>""", unsafe_allow_html=True)
+            <div class="big-metric-value" style="color:{dem_color};">{dem}<span style="font-size:24px;">%</span></div>
+            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{dem}%; background:{dem_color};"></div></div>
+            <div class="big-metric-sub">{"طلب مرتفع" if dem >= 65 else "طلب متوسط" if dem >= 40 else "طلب منخفض"}</div>
+        </div>""", unsafe_allow_html=True)
 
-    # ════════════════════════════════════════════════════
-    # 3️⃣ أفضل الأنشطة المرتبة + لماذا
-    # ════════════════════════════════════════════════════
-    if a.get('best_activities'):
-        st.markdown('<div class="section-title">✅ أفضل الأنشطة المقترحة (مرتبة بالفرصة)</div>', unsafe_allow_html=True)
-        for i, act in enumerate(a['best_activities'], 1):
-            sc_class = "" if act['opportunity_score'] >= 70 else "warn"
-            reasons_html = " • ".join(act['reasons'])
+    # ═══════════════════════════════════════════════════════
+    # 🏛️ بطاقة المحافظة
+    # ═══════════════════════════════════════════════════════
+    if a.get('gov_info'):
+        gi = a['gov_info']
+        conf_label = {"high": "✅ مطابقة عالية", "medium": "⚠️ مطابقة متوسطة", "low": "⚠️ مطابقة محدودة"}.get(gi['confidence'], '-')
+        gov_density = gi['data']['pop'] / gi['data']['area'] if gi['data']['area'] > 0 else 0
+        st.markdown(f"""
+        <div class="governorate-card">
+            <div class="gov-name">🏛️ بيانات المحافظة (تعداد GASTAT 2022)</div>
+            <div style="color:white; font-size:20px; font-weight:800; margin-bottom:6px;">{gi['name']}</div>
+            <div class="gov-stats">
+                <div class="gov-stat-item">👥 السكان: <b>{gi['data']['pop']:,}</b></div>
+                <div class="gov-stat-item">📐 المساحة: <b>{gi['data']['area']:,}</b> كم²</div>
+                <div class="gov-stat-item">📊 الكثافة: <b>{gov_density:.1f}</b> ن/كم²</div>
+                <div class="gov-stat-item">🗺️ المنطقة: <b>{gi['data']['region']}</b></div>
+                <div class="gov-stat-item">📍 المسافة: <b>{gi['distance_km']}</b> كم ({conf_label})</div>
+            </div>
+            <div style="color:#fbbf24; font-size:12px; margin-top:10px;">
+                ⚠️ سكان المحافظة كاملة - الكثافة الفعلية في حيّك قد تختلف بشكل كبير
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
+    # ✅ أفضل الأنشطة المقترحة + ❌ أسوأها
+    # ═══════════════════════════════════════════════════════
+    col_best, col_worst = st.columns(2)
+    
+    with col_best:
+        st.markdown('<div class="section-title">✅ أفضل الأنشطة المقترحة</div>', unsafe_allow_html=True)
+        st.caption("⚠️ اقتراحات مبدئية - تحتاج تحقق ميداني")
+        for i, act in enumerate(a.get('best_activities', [])[:5], 1):
+            reasons = " • ".join(act['reasons'])
+            score_class = "" if act['opportunity_score'] >= 60 else "warn" if act['opportunity_score'] >= 35 else "bad"
             st.markdown(f"""<div class="activity-rank-card">
                 <div class="rank-number">{i}</div>
                 <div class="rank-content">
                     <div class="rank-name">{act['icon']} {act['cat_name']}</div>
-                    <div class="rank-reason">💡 <b>لماذا؟</b> {reasons_html}</div>
-                    <div style="display:flex; gap:14px; margin-top:8px; font-size:11px; color:#64748b;">
-                        <span>📊 الطلب: {act['demand']}%</span>
-                        <span>🏪 المنافسين: {act['existing']}</span>
-                        <span>📈 الإشباع: {act['saturation']}%</span>
+                    <div class="rank-reason">💡 {reasons}<br>
+                        <span style="color:#64748b;">طلب: {act['demand']}% | منافسين: {act['existing']} | إشباع: {act['saturation']}%</span>
                     </div>
                 </div>
-                <div class="rank-score-pill {sc_class}">{act['opportunity_score']}%</div>
-                </div>""", unsafe_allow_html=True)
+                <div class="rank-score-pill {score_class}">{act['opportunity_score']}%</div>
+            </div>""", unsafe_allow_html=True)
 
-    # ════════════════════════════════════════════════════
-    # 
-    # ════════════════════════════════════════════════════
-    if a.get('worst_activities'):
-        st.markdown('<div class="section-title">❌ أنشطة يُنصح بتجنبها هنا</div>', unsafe_allow_html=True)
-        for act in a['worst_activities']:
-            reasons_html = " • ".join(act['reasons'])
-            st.markdown(f"""<div class="activity-rank-card" style="border-color:#7f1d1d;">
-                <div class="rank-number" style="color:#ef4444;">✗</div>
-                <div class="rank-content">
-                    <div class="rank-name">{act['icon']} {act['cat_name']}</div>
-                    <div class="rank-reason">⚠️ <b>السبب:</b> {reasons_html}</div>
-                    <div style="display:flex; gap:14px; margin-top:8px; font-size:11px; color:#64748b;">
-                        <span>📊 الطلب: {act['demand']}%</span>
-                        <span>🏪 المنافسين: {act['existing']}</span>
-                        <span>📈 الإشباع: {act['saturation']}%</span>
+    with col_worst:
+        st.markdown('<div class="section-title">❌ أنشطة يُنصح بتجنبها</div>', unsafe_allow_html=True)
+        if a.get('worst_activities'):
+            st.caption("الأنشطة الأقل فرصة في هذا الموقع")
+            for act in a['worst_activities']:
+                reasons = " • ".join(act['reasons'])
+                st.markdown(f"""<div class="activity-rank-card" style="border-color:rgba(239,68,68,0.3);">
+                    <div class="rank-number" style="color:#ef4444;">✗</div>
+                    <div class="rank-content">
+                        <div class="rank-name">{act['icon']} {act['cat_name']}</div>
+                        <div class="rank-reason">⚠️ {reasons}<br>
+                            <span style="color:#64748b;">منافسين: {act['existing']} | إشباع: {act['saturation']}%</span>
+                        </div>
                     </div>
-                </div>
-                <div class="rank-score-pill bad">{act['opportunity_score']}%</div>
+                    <div class="rank-score-pill bad">{act['opportunity_score']}%</div>
                 </div>""", unsafe_allow_html=True)
+        else:
+            st.info("لا توجد أنشطة بفرصة منخفضة جداً - كل الأنشطة لها إمكانات")
 
-    # ════════════════════════════════════════════════════
-    # 5️⃣ التحليل المالي (لو موجود)
-    # ════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════
+    # ⚖️ نقاط القوة والانتباه
+    # ═══════════════════════════════════════════════════════
+    st.markdown('<div class="section-title">⚖️ نقاط القوة والانتباه</div>', unsafe_allow_html=True)
+    sp1, sp2 = st.columns(2)
+    with sp1:
+        strengths_html = "".join(f'<div style="color:#10b981; padding:6px 0; font-size:14px;">✓ {s}</div>' for s in a['strengths'])
+        st.markdown(f"""<div class="info-card">
+            <div class="info-card-title">✅ نقاط القوة</div>
+            {strengths_html}
+        </div>""", unsafe_allow_html=True)
+    with sp2:
+        cautions_html = "".join(f'<div style="color:#f59e0b; padding:6px 0; font-size:14px;">⚠ {c}</div>' for c in a['cautions'])
+        st.markdown(f"""<div class="info-card">
+            <div class="info-card-title">⚠️ نقاط الانتباه</div>
+            {cautions_html}
+        </div>""", unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
+    # 💰 التحليل المالي (لو موجود)
+    # ═══════════════════════════════════════════════════════
     if a.get('financial'):
         f = a['financial']
         st.markdown('<div class="section-title">💰 التحليل المالي والجدوى</div>', unsafe_allow_html=True)
-
-        vcolors = {'good': '#10b981', 'ok': '#3b82f6', 'warn': '#f59e0b', 'danger': '#ef4444'}
-        vbgs = {'good': 'rgba(16,185,129,0.12)', 'ok': 'rgba(59,130,246,0.12)', 'warn': 'rgba(245,158,11,0.12)', 'danger': 'rgba(239,68,68,0.12)'}
-        vc = vcolors.get(f['verdict_status'], '#94a3b8')
-        vbg = vbgs.get(f['verdict_status'], 'rgba(148,163,184,0.1)')
-        st.markdown(f"""<div style="background:{vbg}; border:2px solid {vc}; border-radius:16px; padding:22px; margin-bottom:16px;">
-            <div style="color:{vc}; font-size:24px; font-weight:800; margin-bottom:8px;">{f['verdict']}</div>
-            <div style="color:#cbd5e1; font-size:14px;">{f['verdict_detail']}</div>
+        
+        vc_map = {'good': '#10b981', 'ok': '#3b82f6', 'warn': '#f59e0b', 'danger': '#ef4444'}
+        vc = vc_map.get(f['verdict_status'], '#94a3b8')
+        
+        st.markdown(f"""<div style="background:rgba(0,0,0,0.2); border:2px solid {vc}; border-radius:14px; padding:18px; margin-bottom:14px;">
+            <div style="color:{vc}; font-size:20px; font-weight:800; margin-bottom:8px;">{f['verdict']}</div>
+            <div style="color:#cbd5e1; font-size:14px; line-height:1.7;">{f['verdict_detail']}</div>
+        </div>""", unsafe_allow_html=True)
+        
+        fc1, fc2, fc3, fc4 = st.columns(4)
+        with fc1:
+            st.markdown(f"""<div class="kpi-card">
+                <div class="kpi-title">💰 رأس المال المطلوب</div>
+                <div class="kpi-value-sm">{f['total_capital']:,.0f}</div>
+                <div class="kpi-sub">ر.س</div>
+            </div>""", unsafe_allow_html=True)
+        with fc2:
+            st.markdown(f"""<div class="kpi-card">
+                <div class="kpi-title">📈 الإيرادات الشهرية</div>
+                <div class="kpi-value-sm" style="color:#10b981;">{f['monthly_revenue']:,.0f}</div>
+                <div class="kpi-sub">ر.س</div>
+            </div>""", unsafe_allow_html=True)
+        with fc3:
+            st.markdown(f"""<div class="kpi-card">
+                <div class="kpi-title">📉 المصاريف الشهرية</div>
+                <div class="kpi-value-sm" style="color:#ef4444;">{f['monthly_expenses']:,.0f}</div>
+                <div class="kpi-sub">ر.س</div>
+            </div>""", unsafe_allow_html=True)
+        with fc4:
+            profit_color = '#10b981' if f['net_profit_monthly'] > 0 else '#ef4444'
+            st.markdown(f"""<div class="kpi-card">
+                <div class="kpi-title">💵 صافي الربح</div>
+                <div class="kpi-value-sm" style="color:{profit_color};">{f['net_profit_monthly']:,.0f}</div>
+                <div class="kpi-sub">ر.س/شهر</div>
             </div>""", unsafe_allow_html=True)
 
-        m1, m2, m3, m4 = st.columns(4)
-        with m1:
-            st.markdown(f"""<div class="kpi-card"><div class="kpi-title">💰 رأس المال المطلوب</div>
-                <div class="kpi-value-sm" style="color:white">{f['total_capital']:,.0f}</div>
-                <div class="kpi-sub">ر.س (تجهيز + 3 شهور إيجار)</div></div>""", unsafe_allow_html=True)
-        with m2:
-            rc = "#10b981" if f['monthly_revenue'] > 0 else "#94a3b8"
-            st.markdown(f"""<div class="kpi-card"><div class="kpi-title">📈 الإيرادات الشهرية</div>
-                <div class="kpi-value-sm" style="color:{rc}">{f['monthly_revenue']:,.0f}</div>
-                <div class="kpi-sub">ر.س متوقعة</div></div>""", unsafe_allow_html=True)
-        with m3:
-            st.markdown(f"""<div class="kpi-card"><div class="kpi-title">📉 المصاريف الشهرية</div>
-                <div class="kpi-value-sm" style="color:#ef4444">{f['monthly_expenses']:,.0f}</div>
-                <div class="kpi-sub">ر.س (إيجار+رواتب+فواتير)</div></div>""", unsafe_allow_html=True)
-        with m4:
-            pc = "#10b981" if f['net_profit_monthly'] > 0 else "#ef4444"
-            st.markdown(f"""<div class="kpi-card"><div class="kpi-title">💵 صافي الربح الشهري</div>
-                <div class="kpi-value-sm" style="color:{pc}">{f['net_profit_monthly']:,.0f}</div>
-                <div class="kpi-sub">ر.س متوقع</div></div>""", unsafe_allow_html=True)
-
-        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-        d1, d2, d3 = st.columns(3)
-        with d1:
-            if f['breakeven_daily']:
-                st.markdown(f"""<div class="info-card">
-                    <div class="info-card-title">⚖️ نقطة التعادل</div>
-                    <div style="color:#a855f7; font-size:28px; font-weight:800;">{f['breakeven_daily']}</div>
-                    <div style="color:#94a3b8; font-size:13px;">عميل/يوم لتغطية المصاريف</div>
+        if f.get('breakeven_daily') or f.get('payback_months'):
+            extra1, extra2 = st.columns(2)
+            if f.get('breakeven_daily'):
+                with extra1:
+                    st.markdown(f"""<div class="kpi-card">
+                        <div class="kpi-title">⚖️ نقطة التعادل اليومية</div>
+                        <div class="kpi-value-sm" style="color:#f59e0b;">{f['breakeven_daily']} عميل</div>
+                        <div class="kpi-sub">عدد العملاء المطلوب للتعادل</div>
                     </div>""", unsafe_allow_html=True)
-        with d2:
-            if f['payback_months']:
-                pbc_c = "#10b981" if f['payback_months'] <= 18 else "#f59e0b" if f['payback_months'] <= 36 else "#ef4444"
-                yrs = f['payback_months'] / 12
-                st.markdown(f"""<div class="info-card">
-                    <div class="info-card-title">📅 استرداد رأس المال</div>
-                    <div style="color:{pbc_c}; font-size:28px; font-weight:800;">{f['payback_months']} شهر</div>
-                    <div style="color:#94a3b8; font-size:13px;">~{yrs:.1f} سنة</div>
+            if f.get('payback_months'):
+                with extra2:
+                    st.markdown(f"""<div class="kpi-card">
+                        <div class="kpi-title">📆 استرداد رأس المال</div>
+                        <div class="kpi-value-sm" style="color:#3b82f6;">{f['payback_months']} شهر</div>
+                        <div class="kpi-sub">المدة لاسترداد الاستثمار</div>
                     </div>""", unsafe_allow_html=True)
-        with d3:
-            if f['rent_assessment']:
-                rc = {'good': '#10b981', 'ok': '#3b82f6', 'warn': '#f59e0b'}.get(f['rent_status'], '#94a3b8')
-                st.markdown(f"""<div class="info-card">
-                    <div class="info-card-title">🏠 تقييم الإيجار</div>
-                    <div style="color:{rc}; font-size:18px; font-weight:700;">{f['rent_assessment']}</div>
-                    <div style="color:#94a3b8; font-size:13px;">{f['rent_per_sqm']:,.0f} ر.س / م² سنوياً</div>
-                    </div>""", unsafe_allow_html=True)
+        
+        st.caption("⚠️ بناءً على أرقامك المُدخلة. الافتراضات قابلة للتعديل: راتب 4,000 ر.س/موظف، هامش 35-50%.")
 
-        with st.expander("📊 تفاصيل المصاريف الشهرية"):
-            st.markdown(f"""
-            - 🏠 **الإيجار:** {f['rent_monthly']:,.0f} ر.س
-            - 👥 **الرواتب:** {f['salaries_monthly']:,.0f} ر.س
-            - 💡 **الفواتير:** {f['utilities']:,.0f} ر.س
-            - 🔧 **مصاريف تشغيل متنوعة (10%):** {f['other_costs']:,.0f} ر.س
-            - **─────**
-            - **📉 الإجمالي:** {f['monthly_expenses']:,.0f} ر.س
-            """)
-
-    # ════════════════════════════════════════════════════
-    # 6️⃣ مواقف + وصول + كثافة الذروة
-    # ════════════════════════════════════════════════════
-    if a.get('site_details'):
-        sd = a['site_details']
-        st.markdown('<div class="section-title">🚗 تحليل الموقع: المواقف والوصول والكثافة</div>', unsafe_allow_html=True)
-        sc1, sc2, sc3 = st.columns(3)
-
-        with sc1:
-            p_c = "#10b981" if sd['parking_score'] >= 70 else "#f59e0b" if sd['parking_score'] >= 50 else "#ef4444"
+    # ═══════════════════════════════════════════════════════
+    # 📝 تحليل التقرير الميداني
+    # ═══════════════════════════════════════════════════════
+    if a.get('field_report_analysis'):
+        fra = a['field_report_analysis']
+        st.markdown('<div class="section-title">📝 تحليل تقريرك الميداني (AI)</div>', unsafe_allow_html=True)
+        st.markdown(f"""<div style="background:rgba(168,85,247,0.08); border:1px solid rgba(168,85,247,0.3); border-radius:14px; padding:18px; margin-bottom:14px;">
+            <div style="color:#c4b5fd; font-size:13px; font-weight:600; margin-bottom:6px;">📌 الملخص</div>
+            <div style="color:#e2e8f0; font-size:14px; line-height:1.7;">{fra.get('summary', '-')}</div>
+        </div>""", unsafe_allow_html=True)
+        
+        fr1, fr2 = st.columns(2)
+        with fr1:
+            insights_html = "".join(f'<div style="color:#3b82f6; padding:5px 0; font-size:13px;">💡 {i}</div>' for i in fra.get('key_insights', []))
+            opps_html = "".join(f'<div style="color:#10b981; padding:5px 0; font-size:13px;">✨ {o}</div>' for o in fra.get('opportunities_detected', []))
             st.markdown(f"""<div class="info-card">
-                <div class="info-card-title">🅿️ مواقف السيارات</div>
-                <div style="color:{p_c}; font-size:22px; font-weight:800; margin:8px 0;">{sd['parking_status']}</div>
-                <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{sd['parking_score']}%; background:{p_c};"></div></div>
-                <div style="color:#94a3b8; font-size:13px; line-height:1.6; margin-top:10px;">{sd['parking_detail']}</div>
-                </div>""", unsafe_allow_html=True)
-
-        with sc2:
-            a_c = "#10b981" if sd['access_score'] >= 70 else "#f59e0b" if sd['access_score'] >= 50 else "#ef4444"
+                <div class="info-card-title">💡 رؤى وفرص مكتشفة</div>
+                {insights_html}
+                {opps_html if opps_html else ''}
+            </div>""", unsafe_allow_html=True)
+        with fr2:
+            warns_html = "".join(f'<div style="color:#f59e0b; padding:5px 0; font-size:13px;">⚠️ {w}</div>' for w in fra.get('warnings_detected', []))
+            facts = fra.get('extracted_facts', {})
+            facts_html = ""
+            for k, v in facts.items():
+                fact_label = {'foot_traffic': 'الحركة', 'competitor_strength': 'قوة المنافسين', 'area_potential': 'إمكانات المنطقة'}.get(k, k)
+                facts_html += f'<div style="color:#cbd5e1; padding:5px 0; font-size:13px;">📊 {fact_label}: <b>{v}</b></div>'
             st.markdown(f"""<div class="info-card">
-                <div class="info-card-title">🚗 سهولة الوصول</div>
-                <div style="color:{a_c}; font-size:22px; font-weight:800; margin:8px 0;">{sd['access_status']}</div>
-                <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{sd['access_score']}%; background:{a_c};"></div></div>
-                <div style="color:#94a3b8; font-size:13px; line-height:1.6; margin-top:10px;">{sd['access_detail']}</div>
-                </div>""", unsafe_allow_html=True)
+                <div class="info-card-title">⚠️ تحذيرات وحقائق مستخرجة</div>
+                {facts_html}
+                {warns_html}
+            </div>""", unsafe_allow_html=True)
 
-        with sc3:
-            ph = sd['peak_hours']
-            peak_html = '<div class="info-card"><div class="info-card-title">⏰ كثافة الذروة</div>'
-            for key in ['morning', 'noon', 'evening']:
-                period = ph[key]
-                pc = "#10b981" if period['score'] >= 70 else "#f59e0b" if period['score'] >= 40 else "#94a3b8"
-                peak_html += f"""<div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #1f2937;">
-                    <span style="color:#cbd5e1; font-size:13px;">{period['label']}</span>
-                    <span style="color:{pc}; font-weight:700; font-size:13px;">{period['level']}</span>
-                    </div>"""
-            peak_html += f'<div style="color:#94a3b8; font-size:12px; margin-top:10px;">🔥 الأشد: <b style="color:#ef4444;">{sd["busiest_period"]}</b></div></div>'
-            st.markdown(peak_html, unsafe_allow_html=True)
+    # ═══════════════════════════════════════════════════════
+    # 🔍 ما يحتاج تحقق ميداني (شفافية كاملة)
+    # ═══════════════════════════════════════════════════════
+    if a.get('needs_verification'):
+        st.markdown('<div class="section-title">🔍 ما يحتاج تحقق ميداني (لرفع دقة التحليل)</div>',
+                    unsafe_allow_html=True)
+        items_html = "".join(f'<li style="color:#cbd5e1; padding:4px 0;">🔎 {v}</li>' for v in a['needs_verification'])
+        st.markdown(f"""<div class="needs-verification">
+            <div class="needs-verification-title">⚠️ بيانات غير متوفرة آلياً - تحتاج جمعاً ميدانياً:</div>
+            <ul>{items_html}</ul>
+        </div>""", unsafe_allow_html=True)
 
-    # ════════════════════════════════════════════════════
-    # 7️⃣ DNA الحي - جديد
-    # ════════════════════════════════════════════════════
-    if a.get('dna'):
-        d = a['dna']
-        st.markdown('<div class="section-title">🧬 DNA الحي (تركيبة ثقافة المنطقة)</div>', unsafe_allow_html=True)
-        dna_colors = {
-            'family': ('عائلي', '#10b981'),
-            'youth': ('شبابي', '#a855f7'),
-            'commercial': ('تجاري', '#3b82f6'),
-            'food': ('طعام', '#ef4444'),
-            'service': ('خدماتي', '#f59e0b'),
-        }
-        dna_html = f'<div class="info-card"><div style="color:#94a3b8; font-size:13px; margin-bottom:12px;">الطابع الأقوى: <b style="color:white;">{d["main"]}</b></div>'
-        for key, (label, color) in dna_colors.items():
-            val = d.get(key, 0)
-            dna_html += f"""<div class="dna-row">
-                <span class="dna-label">{label}</span>
-                <div class="dna-bar"><div class="dna-fill" style="width:{val}%; background:{color};"></div></div>
-                <span class="dna-value" style="color:{color};">{val}%</span>
+    # ═══════════════════════════════════════════════════════
+    # 🧬 DNA الحي (مع تحذير) + معلومات سريعة
+    # ═══════════════════════════════════════════════════════
+    dn1, dn2 = st.columns(2)
+    
+    with dn1:
+        if a.get('dna'):
+            d = a['dna']
+            colors = {'family': '#10b981', 'youth': '#a855f7', 'commercial': '#3b82f6', 'food': '#ef4444', 'service': '#f59e0b'}
+            labels = {'family': 'عائلي', 'youth': 'شبابي', 'commercial': 'تجاري', 'food': 'طعام', 'service': 'خدماتي'}
+            dna_html = ""
+            for k in ['family', 'youth', 'commercial', 'food', 'service']:
+                val = d.get(k, 0)
+                dna_html += f"""<div class="dna-row">
+                    <div class="dna-label">{labels[k]}</div>
+                    <div class="dna-bar"><div class="dna-fill" style="width:{val}%; background:{colors[k]};"></div></div>
+                    <div class="dna-value" style="color:{colors[k]};">{val}%</div>
                 </div>"""
-        dna_html += '</div>'
-        st.markdown(dna_html, unsafe_allow_html=True)
-
-    # ════════════════════════════════════════════════════
-    # 8️⃣ مقارنة مع متوسط المدينة - جديد
-    # ════════════════════════════════════════════════════
-    if a.get('city_comparison'):
-        cc = a['city_comparison']
-        st.markdown('<div class="section-title">🏙️ مقارنة مع متوسط المدن السعودية</div>', unsafe_allow_html=True)
-        sign = "+" if cc['pct_diff'] >= 0 else ""
+            st.markdown(f"""<div class="info-card">
+                <div class="info-card-title">🧬 مؤشر تركيبة الحي <span style="font-size:11px; color:#94a3b8; font-weight:400;">(تقديري)</span></div>
+                <div style="color:#cbd5e1; margin-bottom:10px;">الطابع الأقوى المحتمل: <b style="color:white;">{d['main']}</b></div>
+                {dna_html}
+                <div style="color:#fbbf24; font-size:11px; margin-top:10px;">
+                    ⚠️ مؤشر مبني على نوع المحلات فقط - ليس بيانات سكانية فعلية
+                </div>
+            </div>""", unsafe_allow_html=True)
+    
+    with dn2:
         st.markdown(f"""<div class="info-card">
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px;">
-                <div>
-                    <div style="color:#94a3b8; font-size:13px;">كثافة موقعك</div>
-                    <div style="color:white; font-size:32px; font-weight:800;">{cc['density']} <span style="font-size:14px; color:#64748b;">محل/كم²</span></div>
-                </div>
-                <div>
-                    <div style="color:#94a3b8; font-size:13px;">متوسط المدن السعودية</div>
-                    <div style="color:#94a3b8; font-size:32px; font-weight:800;">{cc['expected']} <span style="font-size:14px;">محل/كم²</span></div>
-                </div>
-                <div style="text-align:center;">
-                    <div style="color:{cc['color']}; font-size:32px; font-weight:900;">{sign}{cc['pct_diff']:.0f}%</div>
-                    <div style="color:{cc['color']}; font-size:14px; font-weight:600;">{cc['status']}</div>
-                </div>
+            <div class="info-card-title">⚡ معلومات سريعة</div>
+            <div class="quick-row">
+                <span style="color:#94a3b8;">🌆 نوع المنطقة</span>
+                <span style="color:white; font-weight:600;">{a['area_type']}</span>
             </div>
-            </div>""", unsafe_allow_html=True)
+            <div class="quick-row">
+                <span style="color:#94a3b8;">🚗 الحركة</span>
+                <span style="color:white; font-weight:600;">{a['traffic_level']}</span>
+            </div>
+            <div class="quick-row">
+                <span style="color:#94a3b8;">🛣️ سهولة الوصول</span>
+                <span style="color:white; font-weight:600;">{a['accessibility']}</span>
+            </div>
+            <div class="quick-row">
+                <span style="color:#94a3b8;">👥 كثافة السكان</span>
+                <span style="color:white; font-weight:600;">{a['pop_density']}</span>
+            </div>
+            <div class="quick-row">
+                <span style="color:#94a3b8;">🏪 إجمالي المحلات</span>
+                <span style="color:white; font-weight:600;">{a['total_places']} في {a['active_cat_count']} فئة</span>
+            </div>
+        </div>""", unsafe_allow_html=True)
 
-    # ════════════════════════════════════════════════════
-    # 9️⃣ المنافسين الأقرب
-    # ════════════════════════════════════════════════════
-    target = a.get('target_cat')
-    if target and a.get('top_competitors'):
-        st.markdown(f'<div class="section-title">🏆 أعلى المنافسين ({CATEGORIES[target]["name"]})</div>', unsafe_allow_html=True)
-        comp_html = '<div class="info-card">'
+    # ═══════════════════════════════════════════════════════
+    # 🏆 أعلى المنافسين (لو محدد نشاط)
+    # ═══════════════════════════════════════════════════════
+    if a.get('target_cat') and a.get('top_competitors'):
+        cat = CATEGORIES[a['target_cat']]
+        st.markdown(f'<div class="section-title">🏆 أعلى المنافسين ({cat["icon"]} {cat["name"]})</div>',
+                    unsafe_allow_html=True)
         for i, c in enumerate(a['top_competitors'][:5], 1):
-            comp_html += f'<div class="competitor-row"><span class="competitor-rank">{i}</span><span class="competitor-name">{c["name"]}</span><span class="competitor-dist">{c["dist"]} كم</span></div>'
-        comp_html += '<div style="color:#64748b; font-size:12px; margin-top:12px;">ℹ️ تقييمات وعدد المراجعات قيد التطوير (Mapbox لا يوفرها)</div></div>'
-        st.markdown(comp_html, unsafe_allow_html=True)
-
-    # ════════════════════════════════════════════════════
-    # 🔟 تحليل الصور (لو موجود)
-    # ════════════════════════════════════════════════════
-    if a.get('image_results'):
-        st.markdown('<div class="section-title">📸 تحليل صور الموقع بالذكاء الاصطناعي</div>', unsafe_allow_html=True)
-        img_score = a.get('image_avg_score', 5)
-        ic = "#10b981" if img_score >= 7 else "#f59e0b" if img_score >= 5 else "#ef4444"
-        st.markdown(f"""<div style="background:rgba(168,85,247,0.08); border:1px solid rgba(168,85,247,0.3); border-radius:14px; padding:16px; margin-bottom:14px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="color:#c4b5fd; font-weight:600;">✨ متوسط تقييم الصور</span>
-                <span style="color:{ic}; font-size:24px; font-weight:800;">{img_score}/10</span>
-            </div>
-            <div style="color:#94a3b8; font-size:12px; margin-top:6px;">دُمجت نتائج الصور في نقاط الاستثمار العامة</div>
+            st.markdown(f"""<div class="competitor-row">
+                <div class="competitor-rank">#{i}</div>
+                <div class="competitor-name">{c['name']}</div>
+                <div class="competitor-dist">{c['dist']} كم</div>
             </div>""", unsafe_allow_html=True)
+        st.caption("⚠️ تقييمات وعدد المراجعات وقوة المنافسين الفعلية غير متاحة (تحتاج Google Places API)")
 
-        for idx, ir in enumerate(a['image_results'], 1):
-            score_val = ir.get('overall_score', '-')
-            with st.expander(f"📷 صورة {idx} — تقييم {score_val}/10"):
-                cc1, cc2 = st.columns(2)
-                with cc1:
-                    st.markdown(f"**🌆 الوصف:** {ir.get('area_description', '-')}")
-                    st.markdown(f"**🚦 الحركة:** {ir.get('traffic_level', '-')}")
-                    st.markdown(f"**🚶 المشاة:** {ir.get('pedestrian_level', '-')}")
-                    st.markdown(f"**🅿️ المواقف:** {ir.get('parking_availability', '-')}")
-                    if ir.get('parking_detail'):
-                        st.caption(f"💬 {ir['parking_detail']}")
-                with cc2:
-                    st.markdown(f"**🛣️ الشارع:** {ir.get('road_access', '-')}")
-                    st.markdown(f"**🏘️ نوع الحي:** {ir.get('neighborhood_type', '-')}")
-                    st.markdown(f"**🏗️ المباني:** {ir.get('building_condition', '-')}")
-                    st.markdown(f"**💡 الإضاءة:** {ir.get('lighting', '-')}")
-                if ir.get('visible_businesses'):
-                    st.markdown(f"**🏪 محلات مرئية:** {', '.join(ir['visible_businesses'])}")
-                if ir.get('suitable_activities'):
-                    st.success("✨ **أنشطة مناسبة:** " + "، ".join(ir['suitable_activities']))
-                if ir.get('strengths'):
-                    for s in ir['strengths']:
-                        st.markdown(f'<div style="color:#10b981; padding:4px 0;">✓ {s}</div>', unsafe_allow_html=True)
-                if ir.get('concerns'):
-                    for c in ir['concerns']:
-                        st.markdown(f'<div style="color:#f59e0b; padding:4px 0;">⚠️ {c}</div>', unsafe_allow_html=True)
+    # ═══════════════════════════════════════════════════════
+    # 🗺️ الخريطة
+    # ═══════════════════════════════════════════════════════
+    st.markdown('<div class="section-title">🗺️ خريطة الموقع</div>', unsafe_allow_html=True)
+    try:
+        m = folium.Map(location=[lat, lng], zoom_start=14, tiles='cartodbpositron')
+        folium.Circle(location=[lat, lng], radius=radius * 1000,
+                      color='#ef4444', fill=True, fillOpacity=0.08, weight=2).add_to(m)
+        folium.Marker(location=[lat, lng],
+                      popup=f'<b>📍 موقعك</b><br>{a["area_type"]}',
+                      icon=folium.Icon(color='red', icon='star', prefix='fa')).add_to(m)
+        for cat_key, places in pbc.items():
+            cat = CATEGORIES[cat_key]
+            for p in places[:8]:
+                folium.CircleMarker(
+                    location=[p['lat'], p['lng']],
+                    radius=4, popup=f"{cat['icon']} {p['name']}",
+                    color=cat['color'], fill=True, fillOpacity=0.7
+                ).add_to(m)
+        st_folium(m, use_container_width=True, height=420, returned_objects=[])
+    except Exception:
+        st.warning("⚠️ تعذّر عرض الخريطة")
 
-    # ════════════════════════════════════════════════════
-    # 1️⃣1️⃣ الخريطة التفاعلية
-    # ════════════════════════════════════════════════════
-    st.markdown('<div class="section-title">🗺️ الخريطة التفاعلية</div>', unsafe_allow_html=True)
-    m = folium.Map(location=[lat, lng], zoom_start=14, tiles='CartoDB dark_matter')
-    folium.Circle([lat, lng], radius=radius * 1000, color='#ef4444', fill=True, fillOpacity=0.08, weight=2).add_to(m)
-    folium.Marker([lat, lng], popup="<b>📍 الموقع المحدد</b>", icon=folium.Icon(color='red', icon='star', prefix='fa')).add_to(m)
-    for cat_key, places in pbc.items():
-        color = CATEGORIES[cat_key]['color']
-        icon = CATEGORIES[cat_key]['icon']
-        cat_name = CATEGORIES[cat_key]['name']
-        for p in places:
-            folium.CircleMarker([p['lat'], p['lng']], radius=6,
-                popup=f"<b>{p['name']}</b><br>{icon} {cat_name}<br>📏 {p['dist']:.2f} كم",
-                tooltip=f"{icon} {p['name']}", color=color, fill=True, fillColor=color, fillOpacity=0.85, weight=1.5).add_to(m)
-    st_folium(m, width=None, height=500, returned_objects=[], key="main_map")
+    # ═══════════════════════════════════════════════════════
+    # 📊 مخطط توزيع المحلات
+    # ═══════════════════════════════════════════════════════
+    st.markdown('<div class="section-title">📊 توزيع المحلات حسب الفئة</div>', unsafe_allow_html=True)
+    chart_data = sorted([(CATEGORIES[k]['name'], len(v), CATEGORIES[k]['color']) for k, v in pbc.items()],
+                        key=lambda x: -x[1])[:15]
+    if chart_data:
+        fig = go.Figure(data=[go.Bar(
+            x=[d[1] for d in chart_data],
+            y=[d[0] for d in chart_data],
+            orientation='h',
+            marker=dict(color=[d[2] for d in chart_data]),
+            text=[d[1] for d in chart_data],
+            textposition='outside',
+        )])
+        fig.update_layout(
+            paper_bgcolor='#131826', plot_bgcolor='#131826',
+            font=dict(color='white', family='Tahoma'),
+            margin=dict(l=80, r=20, t=20, b=40),
+            height=max(300, len(chart_data) * 28),
+            xaxis=dict(gridcolor='#1f2937'),
+            yaxis=dict(autorange='reversed'),
+        )
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-    # ════════════════════════════════════════════════════
-    # 1️⃣2️⃣ الرسوم البيانية
-    # ════════════════════════════════════════════════════
-    if pbc:
-        st.markdown('<div class="section-title">📈 توزيع الأنشطة وتحليل العوامل</div>', unsafe_allow_html=True)
-        chart_col, factors_col = st.columns(2)
-        with chart_col:
-            st.markdown('<div class="info-card-title">🍩 توزيع الأنشطة</div>', unsafe_allow_html=True)
-            labels = [CATEGORIES[k]['name'] for k in pbc.keys()]
-            values = [len(v) for v in pbc.values()]
-            colors_list = [CATEGORIES[k]['color'] for k in pbc.keys()]
-            fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.55,
-                marker=dict(colors=colors_list, line=dict(color='#0a0e1a', width=2)),
-                textfont=dict(color='white', size=12), textinfo='percent')])
-            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'),
-                showlegend=True, legend=dict(font=dict(color='white', size=11)),
-                height=380, margin=dict(t=10, b=10, l=10, r=10))
-            st.plotly_chart(fig, use_container_width=True)
-        with factors_col:
-            st.markdown('<div class="info-card-title">🎯 تحليل العوامل</div>', unsafe_allow_html=True)
-            radar_labels = ['الحركة', 'الكثافة', 'الفرصة', 'الوصول', 'الطلب']
-            radar_values = [a['traffic_score'], a['pop_score'], a['opportunity_score'], a['accessibility_score'], a['demand_score']]
-            fig2 = go.Figure(data=go.Scatterpolar(r=radar_values + [radar_values[0]], theta=radar_labels + [radar_labels[0]],
-                fill='toself', fillcolor='rgba(239,68,68,0.25)', line=dict(color='#ef4444', width=2)))
-            fig2.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100], showticklabels=False),
-                angularaxis=dict(tickfont=dict(color='white', size=11)), bgcolor='rgba(0,0,0,0)'),
-                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', showlegend=False, height=380)
-            st.plotly_chart(fig2, use_container_width=True)
-
-    # ════════════════════════════════════════════════════
-    # 1️⃣3️⃣ الخدمات المفقودة
-    # ════════════════════════════════════════════════════
-    if a['missing_services']:
+    # ═══════════════════════════════════════════════════════
+    # 🔍 الخدمات المفقودة
+    # ═══════════════════════════════════════════════════════
+    if a.get('missing_services'):
         st.markdown('<div class="section-title">🔍 خدمات أساسية مفقودة</div>', unsafe_allow_html=True)
-        miss_html = '<div class="info-card">'
-        for s in a['missing_services']:
-            miss_html += f'<div style="background:rgba(245,158,11,0.1); color:#f59e0b; padding:10px 14px; border-radius:10px; margin-bottom:8px;">⚠️ {s}</div>'
-        miss_html += '</div>'
-        st.markdown(miss_html, unsafe_allow_html=True)
+        missing_html = "".join(f'<div style="background:rgba(239,68,68,0.1); padding:10px 14px; border-radius:10px; color:#fca5a5; margin-bottom:8px;">⚠️ {s}</div>' for s in a['missing_services'])
+        st.markdown(missing_html, unsafe_allow_html=True)
+        st.caption("💡 وجود فجوة قد يكون فرصة - أو قد يعكس عدم وجود طلب. تحقق ميدانياً.")
 
-    # ════════════════════════════════════════════════════
-    # 1️⃣4️⃣ تفاصيل المحلات
-    # ════════════════════════════════════════════════════
-    if pbc:
-        st.markdown('<div class="section-title">🏪 تفاصيل المحلات في المنطقة</div>', unsafe_allow_html=True)
+    # ═══════════════════════════════════════════════════════
+    # 📋 تفاصيل المحلات (Expander)
+    # ═══════════════════════════════════════════════════════
+    with st.expander(f"📋 عرض تفاصيل {a['total_places']} محل في {a['active_cat_count']} فئة"):
         for cat_key, places in sorted(pbc.items(), key=lambda x: -len(x[1])):
             cat = CATEGORIES[cat_key]
-            with st.expander(f"{cat['icon']} {cat['name']} — {len(places)} محل"):
-                for p in places[:25]:
-                    addr = f"<br><span style='color:#64748b; font-size:12px;'>📍 {p['addr']}</span>" if p.get('addr') else ""
-                    st.markdown(f"<div style='padding:8px 0; border-bottom:1px solid #1f2937;'><b style='color:#e2e8f0;'>{p['name']}</b> <span style='color:#f59e0b;'>{p['dist']:.2f} كم</span>{addr}</div>", unsafe_allow_html=True)
+            st.markdown(f"**{cat['icon']} {cat['name']} ({len(places)} محل)**")
+            for p in places[:10]:
+                st.markdown(f"• {p['name']} — {p['dist']:.2f} كم")
+            if len(places) > 10:
+                st.caption(f"... و {len(places) - 10} محل آخر")
+            st.markdown("---")
 
-    # ════════════════════════════════════════════════════
-    # 1️⃣5️⃣ المستشار الذكي
-    # ════════════════════════════════════════════════════
-    st.markdown('<div class="section-title">💬 اسأل المستشار</div>', unsafe_allow_html=True)
+    # ═══════════════════════════════════════════════════════
+    # 💬 المستشار الذكي
+    # ═══════════════════════════════════════════════════════
+    st.markdown('<div class="section-title">💬 المستشار الذكي</div>', unsafe_allow_html=True)
     if not AI_AVAILABLE:
-        st.info("ℹ️ المستشار يعمل بالقواعد الذكية. لتفعيل AI أضف GEMINI_API_KEY.")
-    for msg in st.session_state.chat:
-        with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
-            st.write(msg["content"])
-    user_msg = st.chat_input("اسأل عن الموقع، الفرص، المنافسة...")
-    if user_msg:
-        st.session_state.chat.append({"role": "user", "content": user_msg})
-        with st.spinner("جارٍ التفكير..."):
-            response = ai_chat(user_msg, a, pbc, lat, lng)
-        st.session_state.chat.append({"role": "assistant", "content": response})
-        st.rerun()
-
-else:
-    st.markdown("""
-    <div style="text-align:center; padding:60px 20px; background:#131826; border-radius:18px; border:1px solid #1f2937; margin-top:24px;">
-        <div style="font-size:64px; margin-bottom:20px;">🗺️</div>
-        <h2 style="color:white; margin-bottom:10px;">ابدأ بتحليل موقعك</h2>
-        <p style="color:#94a3b8; margin-bottom:24px;">أدخل رابط Google Maps أو إحداثيات أعلاه واضغط "بدء التحليل".</p>
-    </div>
-    """, unsafe_allow_html=True)
+        st.warning("⚠️ المستشار الذكي يحتاج GEMINI_API_KEY")
+    else:
+        for msg in st.session_state.chat:
+            with st.chat_message(msg['role']):
+                st.markdown(msg['content'])
+        user_msg = st.chat_input("اسأل المستشار عن أي تفصيل في التحليل...")
+        if user_msg:
+            st.session_state.chat.append({'role': 'user', 'content': user_msg})
+            with st.chat_message('user'):
+                st.markdown(user_msg)
+            with st.chat_message('assistant'):
+                with st.spinner("..."):
+                    reply = ai_chat(user_msg, a, pbc, lat, lng)
+                    st.markdown(reply)
+            st.session_state.chat.append({'role': 'assistant', 'content': reply})
+            st.rerun()
