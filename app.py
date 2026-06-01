@@ -1348,7 +1348,7 @@ def confidence_score(pbc, total_places, radius_km, has_field_data=False, has_gov
 # ============================================================================
 # [الدفعة 3] ترتيب الأنشطة (مع تحذير منطقي صادق)
 # ============================================================================
-def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_data=None):
+def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_data=None, local_population=None):
     """
     صنّف الأنشطة من الأفضل للأسوأ.
     
@@ -1442,11 +1442,14 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         })
 
     # ════════════════════════════════════════════════════════════
-    # 🧪 دمج كيمياء العائلة - يحوّل الفرصة من رياضية إلى منطقية
-    # المعادلة الجديدة (محسّنة):
-    #   - الانسجام مع المحيط هو العامل الأهم (60% من الفرصة النهائية)
-    #   - الفرصة الأصلية (الطلب - التشبع) لها وزن 40%
-    #   - إذا لا توجد ترابطات قوية إطلاقاً، خصم إضافي 15 نقطة
+    # 🧪 دمج كيمياء العائلة + 🚫 فيتو الإشباع الذكي
+    # المنطق الجديد:
+    #   1. الفرصة النهائية = (الأصلية × 40%) + (الانسجام × 60%)
+    #   2. فيتو الإشباع: نحسب "منافسين/1000 نسمة" بناءً على السكان المحليين
+    #      - <15 منافس/1000 → منافسة صحية (لا خصم)
+    #      - 15-30 → منافسة عالية (خصم 15 نقطة)
+    #      - 30-50 → خطر شديد (خصم 30 نقطة + تحذير)
+    #      - >50 → كارثة (خصم 50 نقطة + تحويل للقائمة الحمراء)
     # ════════════════════════════════════════════════════════════
     for r in results:
         chem = family_chemistry_analysis(r['cat_key'], pbc)
@@ -1461,36 +1464,64 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             original_opp = r['opportunity_score']
             harmony = chem['harmony_score']
 
-            # المعادلة: 40% فرصة + 60% انسجام
+            # المعادلة الأساسية: 40% فرصة + 60% انسجام
             final_opp = int((original_opp * 0.4) + (harmony * 0.6))
 
-            # خصم إضافي للأنشطة بدون ترابطات قوية (synergies = 0)
-            # هذا يعالج مشكلة "إلكترونيات في منطقة مطاعم"
+            # خصم لعدم وجود ترابطات
             if len(chem['synergies']) == 0:
                 final_opp = max(0, final_opp - 15)
-
-            # بونص للأنشطة المنسجمة جداً (3+ ترابطات قوية)
+            # بونص للترابطات المتعددة
             if len(chem['synergies']) >= 3:
                 final_opp = min(100, final_opp + 5)
-
-            # بونص لو ينتمي للعائلة الغالبة
+            # بونص العائلة الغالبة
             if chem.get('aligned_with_dominant'):
                 final_opp = min(100, final_opp + 3)
 
+            # ════════════════════════════════════════════════════
+            # 🚫 فيتو الإشباع الذكي - الإصلاح الأهم
+            # العتبات معايرة على الواقع السعودي:
+            # - متوسط منطقة صحية: مقهى لكل 800-1500 شخص (≈0.7-1.2/1000)
+            # - عتبة الإشباع: 3+ منافسين/1000 = منافسة شديدة
+            # ════════════════════════════════════════════════════
+            existing_count = r['existing']
+            saturation_veto = None
+            competitors_per_1k = None
+
+            if local_population and local_population > 0 and existing_count > 0:
+                competitors_per_1k = (existing_count * 1000) / local_population
+                if competitors_per_1k > 7:
+                    saturation_veto = "كارثة"
+                    final_opp = min(final_opp, 20)  # سقف صارم
+                    r['reasons'].insert(0, f"🚫 كارثة سوقية: {existing_count} منافس لـ {local_population:,} نسمة محليين ({competitors_per_1k:.1f}/1000) - السوق مدمّر")
+                elif competitors_per_1k > 3.5:
+                    saturation_veto = "خطر شديد"
+                    final_opp = min(final_opp, 30)  # سقف صارم
+                    r['reasons'].insert(0, f"⚠️ خطر شديد: {existing_count} منافس لـ {local_population:,} نسمة ({competitors_per_1k:.1f}/1000) - تشبع مفرط")
+                elif competitors_per_1k > 1.5:
+                    saturation_veto = "منافسة عالية"
+                    final_opp = min(final_opp, 45)  # سقف
+                    r['reasons'].insert(0, f"🟡 منافسة عالية: {competitors_per_1k:.1f} منافس/1000 نسمة - تحتاج تمايز قوي")
+                elif competitors_per_1k > 0.7:
+                    r['reasons'].insert(0, f"📊 منافسة طبيعية: {competitors_per_1k:.1f} منافس/1000 نسمة")
+            elif r['saturation'] >= 100 and existing_count >= 10:
+                saturation_veto = "إشباع مطلق"
+                final_opp = max(0, final_opp - 25)
+                r['reasons'].insert(0, f"⚠️ سوق مشبع: {existing_count} منافس - تحتاج تمايز قوي")
+
+            r['saturation_veto'] = saturation_veto
+            r['competitors_per_1k'] = competitors_per_1k
             r['final_opportunity'] = final_opp
 
-            # إضافة سبب الانسجام
-            if chem['synergies']:
+            # إضافة سبب الانسجام (إذا لم يكن هناك فيتو)
+            if not saturation_veto and chem['synergies']:
                 top_syn = chem['synergies'][0]
                 synergy_reason = f"🧪 ينسجم مع {top_syn['icon']} {top_syn['name']} ({top_syn['count']} محل) - {top_syn['reason']}"
                 r['reasons'].insert(0, synergy_reason)
-                r['reasons'] = r['reasons'][:3]
-            elif harmony < 15:
-                r['reasons'].insert(0, f"⚠️ غريب عن المحيط - لا توجد ترابطات قوية مع المحلات الموجودة")
-                r['reasons'] = r['reasons'][:3]
-            elif len(chem['synergies']) == 0:
-                r['reasons'].insert(0, f"⚠️ لا توجد ترابطات قوية مع المحيط - قد يحتاج جهد تسويقي")
-                r['reasons'] = r['reasons'][:3]
+            elif not saturation_veto and harmony < 15:
+                r['reasons'].insert(0, f"⚠️ غريب عن المحيط - لا توجد ترابطات قوية")
+            elif not saturation_veto and len(chem['synergies']) == 0:
+                r['reasons'].insert(0, f"⚠️ لا توجد ترابطات قوية - يحتاج جهد تسويقي")
+            r['reasons'] = r['reasons'][:4]  # نسمح بـ 4 أسباب الآن (للفيتو)
         else:
             r['harmony_score'] = 0
             r['harmony_level'] = "غير محدد"
@@ -1499,6 +1530,8 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             r['aligned_with_dominant'] = False
             r['dominant_family'] = None
             r['final_opportunity'] = r['opportunity_score']
+            r['saturation_veto'] = None
+            r['competitors_per_1k'] = None
 
     # ترتيب بناءً على الفرصة النهائية (المدموجة مع الانسجام)
     results.sort(key=lambda x: -x['final_opportunity'])
@@ -1506,8 +1539,19 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
     extras = [r for r in results[3:] if r['final_opportunity'] >= 50]
     best.extend(extras[:2])
     best_keys = {b['cat_key'] for b in best}
-    worst_candidates = [r for r in results if r['cat_key'] not in best_keys and r['final_opportunity'] < 35]
-    worst = worst_candidates[-5:] if len(worst_candidates) > 5 else worst_candidates
+    # القائمة الحمراء: نشاطات أقل من 40% أو لديها فيتو
+    worst_candidates = [
+        r for r in results 
+        if r['cat_key'] not in best_keys 
+        and (
+            r['final_opportunity'] < 40 
+            or r.get('saturation_veto') in ('كارثة', 'خطر شديد', 'منافسة عالية', 'إشباع مطلق')
+        )
+    ]
+    # فرز: الأقل فرصة أولاً، ثم الأشد فيتو
+    veto_order = {'كارثة': 0, 'خطر شديد': 1, 'منافسة عالية': 2, 'إشباع مطلق': 3, None: 4}
+    worst_candidates.sort(key=lambda x: (x['final_opportunity'], veto_order.get(x.get('saturation_veto'), 4)))
+    worst = worst_candidates[:7]  # أعلى 7 من الأسوأ
     return best, worst
 # ============================================================================
 # [الدفعة 4] التحليل الرئيسي - منطق صادق وبدون تخمين
@@ -1599,23 +1643,64 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
             traffic_score = max(10, traffic_score - 20)
             traffic_level = "ضعيفة (مؤكدة ميدانياً)"
 
-    # الكثافة السكانية - تعتمد على بيانات المحافظة الحقيقية
-    # ⚠️ ملاحظة: سكان المحافظة ليس بالضرورة سكان الحي - نقولها بصراحة
+    # ════════════════════════════════════════════════════════════
+    # 🔴 إصلاح 1: تقدير السكان المحليين (Catchment Area Estimation)
+    # المنطق:
+    # - عدد المحلات يعكس نوع المنطقة (حضري/سكني/ريفي)
+    # - نقدّر السكان بنسبة من سكان المحافظة + كثافة نوع المنطقة
+    # - معايرة على واقع السعودية
+    # ════════════════════════════════════════════════════════════
+    area_km2_local = math.pi * (radius_km ** 2)
+
+    # تحديد نوع المنطقة من عدد المحلات + كثافة المحلات
+    shop_density = total / area_km2_local if area_km2_local > 0 else 0
+
+    if shop_density >= 40:
+        area_character = "حضري مكتظ"
+        expected_density_per_km2 = 8000
+    elif shop_density >= 25:
+        area_character = "حضري"
+        expected_density_per_km2 = 4000
+    elif shop_density >= 15:
+        area_character = "سكني متوسط"
+        expected_density_per_km2 = 1500
+    elif shop_density >= 6:
+        area_character = "سكني محدود"
+        expected_density_per_km2 = 400
+    elif shop_density >= 1:
+        area_character = "ريفي / أطراف"
+        expected_density_per_km2 = 100
+    else:
+        area_character = "نائي / فارغ"
+        expected_density_per_km2 = 20
+
+    # تقدير السكان: الكثافة المتوقعة × مساحة النطاق
+    local_density = expected_density_per_km2
+    local_population_estimate = int(local_density * area_km2_local)
+    urban_multiplier = expected_density_per_km2  # للتوافق مع الكود القديم
+
+    # إذا كان عندنا بيانات محافظة، نتحقق من المنطق:
+    # السكان المحليون لا يجب أن يتجاوزوا 30% من سكان المحافظة كاملة
     if gov_info:
         gov_pop = gov_info['data']['pop']
-        gov_area = gov_info['data']['area']
-        gov_density = gov_pop / gov_area if gov_area > 0 else 0
-        # تصنيف بسيط على مستوى المحافظة
-        if gov_density >= 500:
-            pop_density, pop_score = "عالية (محافظة)", 85
-        elif gov_density >= 100:
-            pop_density, pop_score = "متوسطة (محافظة)", 65
-        elif gov_density >= 20:
-            pop_density, pop_score = "منخفضة (محافظة)", 45
+        max_reasonable = int(gov_pop * 0.3)
+        if local_population_estimate > max_reasonable:
+            local_population_estimate = max_reasonable
+            local_density = int(local_population_estimate / area_km2_local) if area_km2_local > 0 else 0
+
+    # الكثافة السكانية - الآن تستخدم التقدير المحلي
+    if local_density:
+        if local_density >= 5000:
+            pop_density, pop_score = "عالية جداً", 95
+        elif local_density >= 1500:
+            pop_density, pop_score = "عالية", 80
+        elif local_density >= 500:
+            pop_density, pop_score = "متوسطة", 60
+        elif local_density >= 100:
+            pop_density, pop_score = "منخفضة", 40
         else:
-            pop_density, pop_score = "ريفية (محافظة)", 25
+            pop_density, pop_score = "ريفية / فارغة", 20
     else:
-        # لا توجد بيانات سكان حقيقية
         pop_density, pop_score = "غير معروفة", 50
 
     # المؤشرات الثلاث
@@ -1775,24 +1860,251 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
         'strengths': strengths, 'cautions': cautions,
         'target_cat': target_cat,
         'gov_info': gov_info,
+        'local_population': local_population_estimate,
+        'local_density': local_density,
+        'area_character': area_character,
+        'urban_multiplier': urban_multiplier,
         'needs_verification': needs_verification,
         'contradiction_block': contradiction_block,
     }
 
 
 # ============================================================================
-# [الدفعة 4] التحليل المالي - مع تحذير صريح
+# [الدفعة 4] التحليل المالي - مع تحذير صريح + benchmarks استقرائية
 # ============================================================================
-def financial_analysis(rent_yearly, setup_cost, area_sqm, employees, avg_ticket, daily_customers,
-                       target_cat=None, total_places=0):
-    """
-    التحليل المالي.
+
+# ════════════════════════════════════════════════════════════
+# 🔴 إصلاح 3: قاعدة Benchmarks المالية الاستقرائية
+# معايرة على السوق السعودي (تقديرات معقولة - قابلة للتعديل)
+# ════════════════════════════════════════════════════════════
+ACTIVITY_BENCHMARKS = {
+    # avg_ticket = متوسط الفاتورة | daily_customers = عملاء/يوم لحركة متوسطة
+    # margin = هامش الربح الإجمالي | rent_factor = معامل الإيجار حسب الفئة
+    'cafe': {'avg_ticket': 18, 'daily_customers': 60, 'margin': 0.55, 'name_ar': 'مقهى'},
+    'restaurant': {'avg_ticket': 45, 'daily_customers': 50, 'margin': 0.35, 'name_ar': 'مطعم'},
+    'fast_food': {'avg_ticket': 25, 'daily_customers': 80, 'margin': 0.45, 'name_ar': 'وجبات سريعة'},
+    'grocery': {'avg_ticket': 35, 'daily_customers': 100, 'margin': 0.20, 'name_ar': 'بقالة'},
+    'pharmacy': {'avg_ticket': 55, 'daily_customers': 50, 'margin': 0.30, 'name_ar': 'صيدلية'},
+    'fuel': {'avg_ticket': 80, 'daily_customers': 150, 'margin': 0.08, 'name_ar': 'محطة وقود'},
+    'shopping': {'avg_ticket': 120, 'daily_customers': 30, 'margin': 0.40, 'name_ar': 'محل تسوق'},
+    'clothing_store': {'avg_ticket': 200, 'daily_customers': 20, 'margin': 0.50, 'name_ar': 'ملابس'},
+    'electronics_store': {'avg_ticket': 450, 'daily_customers': 15, 'margin': 0.25, 'name_ar': 'إلكترونيات'},
+    'auto_repair': {'avg_ticket': 250, 'daily_customers': 12, 'margin': 0.45, 'name_ar': 'صيانة سيارات'},
+    'car_wash': {'avg_ticket': 30, 'daily_customers': 30, 'margin': 0.60, 'name_ar': 'مغسلة سيارات'},
+    'beauty_salon': {'avg_ticket': 65, 'daily_customers': 18, 'margin': 0.65, 'name_ar': 'صالون تجميل'},
+    'fitness_center': {'avg_ticket': 250, 'daily_customers': 8, 'margin': 0.60, 'name_ar': 'نادي رياضي'},
+    'clinic': {'avg_ticket': 180, 'daily_customers': 20, 'margin': 0.55, 'name_ar': 'عيادة'},
+    'hotel': {'avg_ticket': 350, 'daily_customers': 15, 'margin': 0.40, 'name_ar': 'فندق'},
+    'services': {'avg_ticket': 60, 'daily_customers': 25, 'margin': 0.40, 'name_ar': 'خدمات'},
+    'car_rental': {'avg_ticket': 200, 'daily_customers': 8, 'margin': 0.50, 'name_ar': 'تأجير سيارات'},
+    'ev_charging_station': {'avg_ticket': 45, 'daily_customers': 40, 'margin': 0.25, 'name_ar': 'شحن كهربائي'},
+}
+
+# معاملات الإيجار السنوي حسب نوع المنطقة (ر.س/م²)
+RENT_BY_AREA_TYPE = {
+    'حضري مكتظ': {'low': 600, 'mid': 1200, 'high': 2500},  # الرياض/جدة وسط
+    'حضري': {'low': 400, 'mid': 800, 'high': 1500},
+    'سكني متوسط': {'low': 250, 'mid': 500, 'high': 900},
+    'سكني محدود': {'low': 150, 'mid': 300, 'high': 600},
+    'ريفي / أطراف': {'low': 80, 'mid': 180, 'high': 350},
+    'نائي / فارغ': {'low': 50, 'mid': 100, 'high': 200},
+}
+
+
+# ════════════════════════════════════════════════════════════
+# 🔴 إصلاح 6: بدائل التخصص للأنشطة المشبعة
+# لكل فئة، قائمة "نسخ متخصصة" تتميّز عن المنافسة العادية
+# مبنية على استراتيجية Differentiation و Niche Marketing
+# ════════════════════════════════════════════════════════════
+SPECIALIZATION_ALTERNATIVES = {
+    'cafe': [
+        {'name': 'مقهى مختصّ (Specialty Coffee)', 'why': 'تستهدف عشاق القهوة المتميزين، سعر أعلى، منافسة أقل'},
+        {'name': 'Drive-Thru فقط', 'why': 'بدون جلسات داخلية - تكلفة أقل، حركة سريعة'},
+        {'name': 'كوّيركينق + قهوة', 'why': 'تجذب موظفي العمل عن بُعد + اشتراكات شهرية ثابتة'},
+        {'name': 'مقهى ديوانية تراثي', 'why': 'تجربة فريدة للعوائل والمناسبات'},
+        {'name': 'Cloud Kitchen + Delivery', 'why': 'بدون موقع للجلوس - عبر التطبيقات فقط'},
+    ],
+    'restaurant': [
+        {'name': 'مطعم مطبخ متخصص (إيطالي/ياباني/كوري)', 'why': 'تنويع المعروض، جذب فئة محددة'},
+        {'name': 'مطعم Cloud Kitchen', 'why': 'إيجار منخفض، توصيل عبر التطبيقات'},
+        {'name': 'مطعم وجبات صحية / كيتو', 'why': 'جمهور متنامي + هامش ربح أعلى'},
+        {'name': 'مطعم عائلي مع منطقة أطفال', 'why': 'جذب العوائل للخروج معاً'},
+        {'name': 'مطعم Food Truck', 'why': 'مرونة الموقع + استثمار أقل'},
+    ],
+    'fast_food': [
+        {'name': 'مفهوم وجبات صحية سريعة', 'why': 'بديل صحي لـ KFC وماك'},
+        {'name': 'Drive-Thru متخصص (شاورما/برجر)', 'why': 'سرعة + بدون جلسات'},
+        {'name': 'Delivery-Only من Cloud Kitchen', 'why': 'تكلفة تشغيل أقل'},
+    ],
+    'grocery': [
+        {'name': 'سوبرماركت منتجات عضوية', 'why': 'جمهور خاص + هامش ربح أعلى'},
+        {'name': 'سوبرماركت 24 ساعة', 'why': 'ميزة تنافسية كبيرة (أكثر المنافسين يُغلقون)'},
+        {'name': 'بقالة منتجات مستوردة', 'why': 'تنويع المعروض - بدون منافسة مباشرة'},
+        {'name': 'متجر صغير + خدمة توصيل سريع', 'why': 'تطبيق + 30 دقيقة توصيل'},
+    ],
+    'pharmacy': [
+        {'name': 'صيدلية متخصصة (بشرة/أعشاب)', 'why': 'منتجات Premium وخبرة متخصصة'},
+        {'name': 'صيدلية + عيادة استشارية', 'why': 'تكامل خدمي - تجربة كاملة'},
+        {'name': 'صيدلية تخدم 24 ساعة', 'why': 'ميزة فريدة في الأحياء'},
+    ],
+    'shopping': [
+        {'name': 'محل منتجات يدوية / حرفية', 'why': 'منتجات فريدة لا تتوفر في الموالات'},
+        {'name': 'محل ماركة محلية صاعدة', 'why': 'دعم العلامات السعودية الناشئة'},
+    ],
+    'clothing_store': [
+        {'name': 'بوتيك تصاميم محلية', 'why': 'تميّز عن العلامات التجارية المعروفة'},
+        {'name': 'محل ملابس رياضية متخصصة', 'why': 'يستهدف شريحة محددة (ركض/جيم)'},
+        {'name': 'محل ملابس أطفال متخصص', 'why': 'منتجات متميزة للعوائل'},
+    ],
+    'auto_repair': [
+        {'name': 'ورشة سيارات كهربائية', 'why': 'نمو سوق السيارات الكهربائية'},
+        {'name': 'ورشة متخصصة (BMW/Lexus/Mercedes)', 'why': 'أسعار أعلى + خبرة متخصصة'},
+        {'name': 'ورشة + خدمة استلام وتوصيل', 'why': 'راحة العميل = ميزة تنافسية'},
+    ],
+    'car_wash': [
+        {'name': 'غسيل سيارات بالبخار (Eco)', 'why': 'صديق للبيئة + توفير ماء'},
+        {'name': 'مغسلة + كافيه انتظار', 'why': 'كيمياء العائلة - عميل يستفيد من الوقت'},
+        {'name': 'غسيل في موقع العميل', 'why': 'خدمة فاخرة - بدون موقع ثابت'},
+    ],
+    'beauty_salon': [
+        {'name': 'صالون أطفال متخصص', 'why': 'فئة قليلة المنافسة - ولاء عالٍ'},
+        {'name': 'صالون VIP بالموعد فقط', 'why': 'تجربة فاخرة - أسعار أعلى'},
+        {'name': 'صالون رجالي راقي (Barber Shop)', 'why': 'مفهوم حديث - يستهدف الشباب'},
+    ],
+    'services': [
+        {'name': 'مغسلة ملابس + استلام منزلي', 'why': 'بديل للمغاسل التقليدية'},
+        {'name': 'مركز خدمات حكومية موحد', 'why': 'تجميع خدمات - يوفر وقت العميل'},
+    ],
+}
+
+
+def get_specialization_alternatives(target_cat):
+    """يرجع بدائل التخصص لنشاط مشبع"""
+    return SPECIALIZATION_ALTERNATIVES.get(target_cat, [])
+
+
+def get_benchmark_for_activity(target_cat, traffic_score, area_character, competitors_count=0):
+    """يرجع تقدير benchmarks لنشاط معيّن بناءً على نوع المنطقة والحركة"""
+    if not target_cat or target_cat not in ACTIVITY_BENCHMARKS:
+        return None
     
-    التغييرات v3:
-    - ✅ تحذير صريح لو المستخدم ما أدخل إيرادات
-    - ✅ توضيح أن الافتراضات قابلة للتعديل
-    - ✅ لا يقول "غير مجدي" بشكل قاطع إذا الأرقام ناقصة
+    base = ACTIVITY_BENCHMARKS[target_cat].copy()
+    
+    # تعديل عدد العملاء بناءً على الحركة
+    traffic_multiplier = 1.0
+    if traffic_score >= 80:
+        traffic_multiplier = 1.5
+    elif traffic_score >= 60:
+        traffic_multiplier = 1.2
+    elif traffic_score >= 40:
+        traffic_multiplier = 1.0
+    elif traffic_score >= 20:
+        traffic_multiplier = 0.7
+    else:
+        traffic_multiplier = 0.4
+    
+    # تعديل بناءً على نوع المنطقة (مدن كبيرة = أسعار أعلى وعملاء أكثر)
+    area_multiplier = 1.0
+    if area_character == 'حضري مكتظ':
+        area_multiplier = 1.4
+    elif area_character == 'حضري':
+        area_multiplier = 1.15
+    elif area_character == 'سكني متوسط':
+        area_multiplier = 1.0
+    elif area_character == 'سكني محدود':
+        area_multiplier = 0.75
+    elif area_character == 'ريفي / أطراف':
+        area_multiplier = 0.5
+    else:
+        area_multiplier = 0.35
+    
+    # توزيع نصيب العملاء على المنافسين (الكعكة تُقسّم)
+    # لو عندنا 22 مقهى → كل واحد يأخذ نصيبه + جزء من السوق الجديد
+    competition_share = 1.0
+    if competitors_count > 0:
+        # نصيبك ≈ 1 / (عدد المنافسين + 1) + 0.3 (السوق ينمو قليلاً)
+        competition_share = (1.0 / (competitors_count + 1)) + 0.3
+        competition_share = min(1.0, competition_share)
+    
+    estimated_daily_customers = int(base['daily_customers'] * traffic_multiplier * area_multiplier * competition_share)
+    estimated_avg_ticket = int(base['avg_ticket'] * (1.0 + (area_multiplier - 1.0) * 0.5))  # السعر يرتفع قليلاً في الحضر
+    
+    return {
+        'estimated_avg_ticket': estimated_avg_ticket,
+        'estimated_daily_customers': max(1, estimated_daily_customers),
+        'margin': base['margin'],
+        'activity_name': base['name_ar'],
+        'traffic_multiplier': traffic_multiplier,
+        'area_multiplier': area_multiplier,
+        'competition_share': competition_share,
+        'is_estimated': True,
+    }
+
+
+def get_estimated_rent(area_sqm, area_character, traffic_score):
+    """يرجع تقدير إيجار سنوي بناءً على المنطقة والمساحة"""
+    if not area_sqm or area_sqm <= 0:
+        return None
+    rent_data = RENT_BY_AREA_TYPE.get(area_character, RENT_BY_AREA_TYPE['سكني محدود'])
+    # نختار المتوسط، نعدّل قليلاً حسب الحركة
+    if traffic_score >= 75:
+        rent_per_sqm = rent_data['high']
+    elif traffic_score >= 50:
+        rent_per_sqm = rent_data['mid']
+    else:
+        rent_per_sqm = rent_data['low']
+    return int(rent_per_sqm * area_sqm)
+
+
+def financial_analysis(rent_yearly, setup_cost, area_sqm, employees, avg_ticket, daily_customers,
+                       target_cat=None, total_places=0, traffic_score=50, area_character='سكني محدود',
+                       competitors_count=0):
     """
+    التحليل المالي - الآن مع benchmarks استقرائية.
+    
+    التغييرات (إصلاح 3):
+    - ✅ لو المستخدم لم يدخل إيرادات، نستخدم benchmarks
+    - ✅ نوضح كل رقم: حقيقي (من المستخدم) أم تقديري
+    - ✅ نسمح للتقدير ينتج تحليل أولي مفيد
+    """
+    benchmark = get_benchmark_for_activity(target_cat, traffic_score, area_character, competitors_count)
+    
+    # تتبّع المصدر: ما الذي أدخله المستخدم وما الذي قدّرناه
+    sources = {}
+    
+    # متوسط الفاتورة
+    if avg_ticket and avg_ticket > 0:
+        sources['avg_ticket'] = 'user'
+    elif benchmark:
+        avg_ticket = benchmark['estimated_avg_ticket']
+        sources['avg_ticket'] = 'estimated'
+    else:
+        avg_ticket = 0
+        sources['avg_ticket'] = 'missing'
+    
+    # عدد العملاء
+    if daily_customers and daily_customers > 0:
+        sources['daily_customers'] = 'user'
+    elif benchmark:
+        daily_customers = benchmark['estimated_daily_customers']
+        sources['daily_customers'] = 'estimated'
+    else:
+        daily_customers = 0
+        sources['daily_customers'] = 'missing'
+    
+    # الإيجار
+    if rent_yearly and rent_yearly > 0:
+        sources['rent_yearly'] = 'user'
+    else:
+        est_rent = get_estimated_rent(area_sqm, area_character, traffic_score)
+        if est_rent:
+            rent_yearly = est_rent
+            sources['rent_yearly'] = 'estimated'
+        else:
+            rent_yearly = 0
+            sources['rent_yearly'] = 'missing'
+    
+    # إذا كل شي صفر، نرجع None (لا فائدة)
     if not (rent_yearly or setup_cost or avg_ticket or daily_customers):
         return None
 
@@ -1834,33 +2146,45 @@ def financial_analysis(rent_yearly, setup_cost, area_sqm, employees, avg_ticket,
     if rent_yearly > 0 and area_sqm > 0:
         rent_per_sqm = rent_yearly / area_sqm
 
-    # ✅ المنطق المحسّن: لا نقول "غير مجدي" بدون بيانات إيرادات
+    # ✅ المنطق المحسّن مع benchmarks:
+    # نحدد ما إذا كانت الأرقام تقديرية بناءً على sources
+    revenue_is_estimated = sources.get('avg_ticket') == 'estimated' or sources.get('daily_customers') == 'estimated'
+    rent_is_estimated = sources.get('rent_yearly') == 'estimated'
+    
+    estimate_warning = ""
+    if revenue_is_estimated or rent_is_estimated:
+        est_parts = []
+        if revenue_is_estimated:
+            est_parts.append(f"الفاتورة {avg_ticket} ر.س + العملاء {daily_customers}/يوم (تقدير قطاعي)")
+        if rent_is_estimated:
+            est_parts.append(f"الإيجار {rent_yearly:,.0f} ر.س/سنة (تقدير حسب نوع المنطقة)")
+        estimate_warning = f" ⚠️ استخدمنا تقديرات لـ: {' • '.join(est_parts)}. عدّلها لو عندك أرقام أدق."
+    
     if not has_revenue_data:
         verdict = "تحليل غير مكتمل ⚠️"
         verdict_status = "warn"
-        verdict_detail = ("لإكمال التحليل المالي، أدخل: متوسط الفاتورة المتوقع + عدد العملاء اليومي. "
-                          "بدون هذه البيانات، لا يمكن حساب الربحية أو الجدوى.")
+        verdict_detail = ("أدخل متوسط الفاتورة + عدد العملاء أو حدّد نشاطاً نستخدم له تقديرات قياسية.")
     elif not has_cost_data:
         verdict = "بيانات التكلفة ناقصة ⚠️"
         verdict_status = "warn"
         verdict_detail = "أدخل تكاليف الإيجار والتجهيز للحصول على تحليل جدوى كامل."
     elif net_profit_monthly > 0 and payback_months and payback_months <= 24:
-        verdict = "مجدي مالياً ✅"
+        verdict = "مجدي مالياً ✅" if not (revenue_is_estimated or rent_is_estimated) else "مجدي تقديرياً ✅"
         verdict_status = "good"
-        verdict_detail = f"الأرباح تغطي رأس المال خلال {payback_months} شهر (بناءً على أرقامك)."
+        verdict_detail = f"الأرباح تغطي رأس المال خلال {payback_months} شهر.{estimate_warning}"
     elif net_profit_monthly > 0 and payback_months and payback_months <= 48:
         verdict = "مجدي لكن استرداد بطيء ⚠️"
         verdict_status = "ok"
-        verdict_detail = f"يحتاج {payback_months} شهر لاسترداد رأس المال (بناءً على أرقامك)."
+        verdict_detail = f"يحتاج {payback_months} شهر لاسترداد رأس المال.{estimate_warning}"
     elif net_profit_monthly > 0:
         verdict = "يحتاج دراسة دقيقة ⚠️"
         verdict_status = "warn"
-        verdict_detail = "ربح ضعيف نسبة لرأس المال - راجع الإيجار أو الإيرادات المتوقعة."
+        verdict_detail = f"ربح ضعيف نسبة لرأس المال - راجع الإيجار أو الإيرادات المتوقعة.{estimate_warning}"
     else:
         verdict = "بحاجة إعادة دراسة الأرقام ⚠️"
         verdict_status = "danger"
         verdict_detail = (f"المصاريف ({monthly_expenses:,.0f}) تتجاوز الأرباح ({monthly_gross_profit:,.0f}). "
-                          "تحقق من توقعات العملاء وأسعارك.")
+                          f"تحقق من توقعات العملاء وأسعارك.{estimate_warning}")
 
     return {
         'rent_monthly': rent_monthly, 'salaries_monthly': salaries_monthly,
@@ -1872,6 +2196,9 @@ def financial_analysis(rent_yearly, setup_cost, area_sqm, employees, avg_ticket,
         'rent_assessment': rent_assessment, 'rent_status': rent_status,
         'verdict': verdict, 'verdict_status': verdict_status, 'verdict_detail': verdict_detail,
         'has_revenue_data': has_revenue_data, 'has_cost_data': has_cost_data,
+        'sources': sources,
+        'is_estimated': revenue_is_estimated or rent_is_estimated,
+        'benchmark_used': benchmark,
         'assumptions': {
             'salary_per_employee': salary_per_employee,
             'gross_margin': gross_margin,
@@ -2053,7 +2380,7 @@ def analyze_field_report(report_text, analysis, pbc, lat, lng):
 
 
 def ai_enhance(analysis, pbc, lat, lng):
-    """تحسين التحليل بـ Gemini AI"""
+    """تحسين التحليل بـ Gemini AI - prompt صارم يستخدم بيانات محددة"""
     if not AI_AVAILABLE:
         return analysis
     try:
@@ -2062,15 +2389,46 @@ def ai_enhance(analysis, pbc, lat, lng):
         gov_text = ""
         if analysis.get('gov_info'):
             gi = analysis['gov_info']
-            gov_text = f", المحافظة: {gi['name']} (سكان: {gi['data']['pop']:,})"
-        prompt = f"""أنت خبير تحليل مواقع في السعودية. الموقع ({lat},{lng}){gov_text}.
-الأنشطة: {summary}
-نقاط الاستثمار: {analysis['investment_score']}/100
-القرار الحالي: {analysis['decision']}
-الفرصة: {analysis['opportunity_score']}, الإشباع: {analysis['saturation_score']}, الطلب: {analysis['demand_score']}
+            gov_text = f"\n- المحافظة: {gi['name']} (سكان: {gi['data']['pop']:,})"
+        
+        # نضيف بيانات السكان المحليين والنوع
+        local_text = ""
+        if analysis.get('local_population'):
+            local_text = f"\n- السكان المحليون المقدّرون: {analysis['local_population']:,} ({analysis.get('area_character', '-')})"
+        
+        # أسماء منافسين فعليين (لو في target_cat)
+        competitor_names = ""
+        target = analysis.get('target_cat')
+        if target and target in pbc:
+            top5 = pbc[target][:5]
+            names = [p.get('name', '?') for p in top5]
+            competitor_names = f"\n- أسماء أبرز المنافسين المباشرين ({CATEGORIES[target]['name']}): {' | '.join(names)}"
+        
+        # كيمياء العائلة (إن وجدت)
+        chem_text = ""
+        if analysis.get('best_activities'):
+            top_act = analysis['best_activities'][0]
+            if top_act.get('synergies'):
+                top_syn = top_act['synergies'][0]
+                chem_text = f"\n- أقوى ترابط: {top_act['icon']} {top_act['cat_name']} ينسجم مع {top_syn['icon']} {top_syn['name']} ({top_syn['count']} محل)"
+        
+        prompt = f"""أنت خبير تحليل مواقع تجارية في السعودية. حلّل بعمق وأعطي توصية محددة.
 
-أعد JSON فقط:
-{{"ai_recommendation":"توصية محسّنة في 3 جمل مفيدة وواقعية (تجنّب التناقض)"}}"""
+📍 الموقع: ({lat:.4f}, {lng:.4f}){gov_text}{local_text}
+🏪 المحلات: {summary}
+📊 المؤشرات: الفرصة {analysis['opportunity_score']}% | الإشباع {analysis['saturation_score']}% | الطلب {analysis['demand_score']}%
+🎯 القرار الحالي: {analysis['decision']} ({analysis['investment_score']}/100){competitor_names}{chem_text}
+
+🚨 قواعد صارمة - يجب الالتزام بها:
+1. استخدم أرقاماً محددة في توصيتك (مثل "22 منافس" وليس "كثير")
+2. اذكر اسم منافس واحد على الأقل لو متوفر
+3. لا تكرر معلومات معروضة بالفعل - أضف رؤى جديدة
+4. توصيتك يجب أن تكون **عملية ومحددة** لهذا الموقع، ليست عامة
+5. لو الإشباع >85%، حذّر صراحة من الدخول بنفس النشاط
+6. لو الفرصة <40%، اقترح بدائل متخصصة
+
+أعد JSON فقط بالشكل التالي:
+{{"ai_recommendation":"توصية احترافية في 3-4 جمل تستخدم الأرقام والأسماء المذكورة أعلاه"}}"""
         text = model.generate_content(prompt).text.strip()
         if '```json' in text:
             text = text.split('```json')[1].split('```')[0]
@@ -2085,7 +2443,7 @@ def ai_enhance(analysis, pbc, lat, lng):
 
 
 def ai_chat(msg, analysis, pbc, lat, lng):
-    """محادثة AI مع السياق"""
+    """محادثة AI مع السياق الكامل"""
     if AI_AVAILABLE:
         try:
             model = genai.GenerativeModel('gemini-2.5-flash')
@@ -2094,12 +2452,46 @@ def ai_chat(msg, analysis, pbc, lat, lng):
             if analysis.get('gov_info'):
                 gi = analysis['gov_info']
                 gov_text = f"\nالمحافظة: {gi['name']} (سكان: {gi['data']['pop']:,})"
-            ctx = f"""موقع: {lat},{lng} | الأنشطة: {summary}{gov_text}
-نقاط: {analysis['investment_score']}/100 | القرار: {analysis['decision']}
-الفرصة: {analysis['opportunity_score']} | الإشباع: {analysis['saturation_score']} | الطلب: {analysis['demand_score']}
+            
+            local_text = ""
+            if analysis.get('local_population'):
+                local_text = f"\nالسكان المحليون التقديريون: {analysis['local_population']:,} ({analysis.get('area_character', '-')})"
+            
+            # أسماء منافسين
+            competitor_names = ""
+            target = analysis.get('target_cat')
+            if target and target in pbc:
+                top3 = [p.get('name', '?') for p in pbc[target][:3]]
+                competitor_names = f"\nمنافسون مباشرون: {' | '.join(top3)}"
+            
+            # أفضل الأنشطة المقترحة
+            best_acts = ""
+            if analysis.get('best_activities'):
+                best_acts = "\nأفضل 3 أنشطة مقترحة: " + ", ".join(
+                    [f"{b['icon']} {b['cat_name']} ({b.get('final_opportunity', 0)}%)" for b in analysis['best_activities'][:3]]
+                )
+            
+            # تحليل مالي مختصر
+            fin_text = ""
+            if analysis.get('financial'):
+                f = analysis['financial']
+                fin_text = f"\nمالي: ربح متوقع {f['net_profit_monthly']:,.0f} ر.س/شهر | حكم: {f['verdict']}"
+            
+            ctx = f"""أنت مستشار استثمار في السعودية، تجيب باللغة العربية بعمق ووضوح.
+
+موقع: {lat:.4f}, {lng:.4f}{gov_text}{local_text}
+الأنشطة في النطاق: {summary}
+المؤشرات: استثمار {analysis['investment_score']}/100 | فرصة {analysis['opportunity_score']}% | إشباع {analysis['saturation_score']}% | طلب {analysis['demand_score']}%
 المنطقة: {analysis['area_type']} | الحركة: {analysis['traffic_level']}
-السؤال: {msg}
-أجب بالعربية بإيجاز ووضوح."""
+القرار: {analysis['decision']}{competitor_names}{best_acts}{fin_text}
+
+سؤال المستخدم: {msg}
+
+🚨 قواعد:
+- استخدم أرقاماً محددة من البيانات أعلاه
+- اذكر أسماء منافسين/أنشطة عند الإمكان
+- إجابة مختصرة (3-5 جمل) وعملية، ليست عامة
+- لو السؤال يحتاج تخمين، وضّح أنه تقدير"""
             return model.generate_content(ctx).text.strip()
         except Exception:
             pass
@@ -2152,23 +2544,88 @@ def build_report_html(a, pbc, lat, lng, radius):
     </div>
     """
 
+    # تحذير الإشباع + بدائل التخصص للنشاط المختار
+    saturation_warning_pdf = ""
+    target_cat_pdf = a.get('target_cat')
+    if target_cat_pdf and a.get('local_population') and a['local_population'] > 0:
+        comp_count_pdf = len(pbc.get(target_cat_pdf, []))
+        if comp_count_pdf > 0:
+            cp_pdf = (comp_count_pdf * 1000) / a['local_population']
+            warn_html = ""
+            severity_color = "#10b981"
+            if cp_pdf > 7:
+                severity_color = "#dc2626"
+                warn_html = f"""🚫 <b>كارثة سوقية متوقعة!</b><br>
+                {comp_count_pdf} منافس لـ {a['local_population']:,} نسمة محليين = <b>{cp_pdf:.1f} منافس/1000 نسمة</b><br>
+                الحد الصحي < 1.5/1000. هذا السوق <b>مدمّر تماماً</b> للنشاط العادي."""
+            elif cp_pdf > 3.5:
+                severity_color = "#dc2626"
+                warn_html = f"""⚠️ <b>خطر شديد!</b><br>
+                {comp_count_pdf} منافس لـ {a['local_population']:,} نسمة محليين = <b>{cp_pdf:.1f}/1000</b><br>
+                الفرص للنشاط العادي محدودة - <b>التخصص ضروري</b>."""
+            elif cp_pdf > 1.5:
+                severity_color = "#f59e0b"
+                warn_html = f"""🟡 <b>منافسة عالية</b><br>
+                {comp_count_pdf} منافس لـ {a['local_population']:,} نسمة محليين = <b>{cp_pdf:.1f}/1000</b><br>
+                الدخول يتطلب تمايز قوي."""
+            
+            if warn_html:
+                alts_pdf = get_specialization_alternatives(target_cat_pdf)
+                alts_html = ""
+                if alts_pdf:
+                    alt_items = "".join(
+                        f'<li style="padding:8px 0; border-bottom:1px solid #e5e7eb;"><b>{i+1}. {alt["name"]}</b><br><span style="color:#6b7280; font-size:13px;">💡 {alt["why"]}</span></li>'
+                        for i, alt in enumerate(alts_pdf[:5])
+                    )
+                    alts_html = f"""
+                    <div style="background:#f3e8ff; border:1px solid #a855f7; border-radius:10px; padding:14px; margin-top:14px;">
+                        <h4 style="color:#7c3aed; margin-bottom:10px;">💡 بدائل التخصص - كيف تنجح في سوق مشبع؟</h4>
+                        <ul style="list-style:none; padding:0; margin:0;">{alt_items}</ul>
+                    </div>
+                    """
+                
+                saturation_warning_pdf = f"""
+                <div class="section" style="border:2px solid {severity_color}; background:rgba(239,68,68,0.05);">
+                    <div style="color:{severity_color}; font-size:16px; line-height:1.7;">{warn_html}</div>
+                    {alts_html}
+                </div>
+                """
+
     # بيانات المحافظة (لو موجودة)
     gov_section = ""
     if a.get('gov_info'):
         gi = a['gov_info']
         conf_text = {"high": "عالية", "medium": "متوسطة", "low": "محدودة"}.get(gi['confidence'], '-')
+        
+        local_html = ""
+        if a.get('local_population'):
+            local_html = f"""
+            <div style="background:#ecfdf5; border-right:3px solid #10b981; padding:12px; border-radius:8px; margin-top:12px;">
+                <div style="color:#047857; font-weight:700; font-size:13px; margin-bottom:6px;">📊 التقدير المحلي (داخل نطاق التحليل)</div>
+                <div style="color:#4b5563; font-size:13px;">
+                    👥 السكان المحليون: <b>~{a['local_population']:,}</b> | 
+                    📊 الكثافة: <b>{a.get('local_density', 0):,}</b> ن/كم² | 
+                    🏘️ نوع المنطقة: <b>{a.get('area_character', '-')}</b>
+                </div>
+                <div style="color:#6b7280; font-size:11px; margin-top:4px;">
+                    💡 تقدير مبني على عدد المحلات في النطاق ({a['total_places']} محل)
+                </div>
+            </div>
+            """
+        
         gov_section = f"""
         <div class="section" style="border-color:#3b82f6;">
             <h3>🏛️ بيانات المحافظة (تعداد GASTAT 2022)</h3>
             <div class="gov-stats">
                 <div><b>المحافظة:</b> {gi['name']}</div>
-                <div><b>السكان:</b> {gi['data']['pop']:,}</div>
+                <div><b>سكان المحافظة:</b> {gi['data']['pop']:,}</div>
                 <div><b>المساحة:</b> {gi['data']['area']:,} كم²</div>
                 <div><b>المنطقة:</b> {gi['data']['region']}</div>
                 <div><b>المسافة من المركز:</b> {gi['distance_km']} كم (ثقة: {conf_text})</div>
             </div>
+            {local_html}
             <p style="color:#666; font-size:12px; margin-top:10px;">
-                ⚠️ بيانات السكان على مستوى المحافظة كاملة، وقد لا تعكس الكثافة الفعلية لموقعك المحدد.
+                ⚠️ التقدير المحلي تقريبي - الكثافة الفعلية قد تختلف. للدقة الكاملة: استبيان ميداني.
             </p>
         </div>
         """
@@ -2356,11 +2813,12 @@ def build_report_html(a, pbc, lat, lng, radius):
             </div>"""
         dna_section = f"""
         <div class="section">
-            <h3>🧬 مؤشر تركيبة الحي <span style="font-size:12px; color:#9ca3af;">(تقديري)</span></h3>
-            <div class="dna-main">الطابع الأقوى المحتمل: <b>{d['main']}</b></div>
+            <h3>🏪 تركيبة المحلات في المحيط <span style="font-size:12px; color:#9ca3af;">(تحليل العرض - وليس الطلب)</span></h3>
+            <div class="dna-main">الطابع الأقوى للمحلات الموجودة: <b>{d['main']}</b></div>
             {dna_bars}
             <p style="font-size:12px; color:#9ca3af; margin-top:10px;">
-                ⚠️ مؤشر استدلالي مبني على نوع المحلات الموجودة - ليس بيانات سكانية فعلية للحي.
+                📊 هذا يصف <b>نوع المحلات الموجودة في المحيط</b> (العرض)، وليس تركيبة سكان الحي (الطلب).
+                مثال: حي عائلي قد يكون "تجاري" حسب هذا المؤشر بسبب وجود ورش/خدمات.
             </p>
         </div>
         """
@@ -2588,6 +3046,7 @@ def build_report_html(a, pbc, lat, lng, radius):
     {header}
     {honesty}
     {decision_section}
+    {saturation_warning_pdf}
     {gov_section}
     {best_act_highlight}
     {custom_act_section}
@@ -3030,24 +3489,32 @@ if analyze_btn:
 
     status.markdown('<p class="progress-msg">🎯 65% - تصنيف الأنشطة...</p>', unsafe_allow_html=True)
     progress.progress(65)
-    best, worst = rank_all_activities(pbc, a['dna'], a['traffic_score'], a['pop_score'], a['accessibility_score'], field_data=fi)
+    best, worst = rank_all_activities(pbc, a['dna'], a['traffic_score'], a['pop_score'], a['accessibility_score'], field_data=fi, local_population=a.get('local_population'))
     a['best_activities'] = best
     a['worst_activities'] = worst
 
     # التحليل المالي (إن وجدت أرقام)
     fin_in = st.session_state.fin_inputs
-    if any(fin_in.values()):
-        status.markdown('<p class="progress-msg">💰 75% - تحليل مالي...</p>', unsafe_allow_html=True)
+    # نشغّل التحليل المالي إذا: المستخدم أدخل أرقام، أو حدد نشاطاً (لاستخدام benchmarks)
+    if any(fin_in.values()) or st.session_state.target_activity:
+        status.markdown('<p class="progress-msg">💰 75% - تحليل مالي (مع benchmarks)...</p>', unsafe_allow_html=True)
         progress.progress(75)
+        # نحدد عدد المنافسين الحاليين للنشاط المستهدف
+        comp_count = 0
+        if st.session_state.target_activity:
+            comp_count = len(pbc.get(st.session_state.target_activity, []))
         a['financial'] = financial_analysis(
             rent_yearly=fin_in.get('rent_yearly', 0),
             setup_cost=fin_in.get('setup_cost', 0),
-            area_sqm=fin_in.get('area_sqm', 0),
-            employees=fin_in.get('employees', 0),
+            area_sqm=fin_in.get('area_sqm', 0) or 80,  # افتراضي 80 م²
+            employees=fin_in.get('employees', 0) or 2,  # افتراضي 2 موظف
             avg_ticket=fin_in.get('avg_ticket', 0),
             daily_customers=fin_in.get('daily_customers', 0),
             target_cat=st.session_state.target_activity,
-            total_places=a['total_places']
+            total_places=a['total_places'],
+            traffic_score=a.get('traffic_score', 50),
+            area_character=a.get('area_character', 'سكني محدود'),
+            competitors_count=comp_count,
         )
 
     # تحليل الصور
@@ -3183,6 +3650,48 @@ else:
         decision_card += f'<div class="verdict-tag">🏛️ {a["gov_info"]["name"]}</div>'
     decision_card += "</div></div>"
     st.markdown(decision_card, unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
+    # 🚫 تحذير شديد لو النشاط المختار مشبع + بدائل التخصص
+    # ═══════════════════════════════════════════════════════
+    target_cat_str = a.get('target_cat')
+    if target_cat_str and a.get('local_population') and a['local_population'] > 0:
+        comp_count = len(pbc.get(target_cat_str, []))
+        if comp_count > 0:
+            cp_per_1k = (comp_count * 1000) / a['local_population']
+            warning_severity = None
+            warning_msg = ""
+            
+            if cp_per_1k > 7:
+                warning_severity = "danger"
+                warning_msg = f"🚫 <b>كارثة سوقية متوقعة!</b><br>{comp_count} منافس لـ {a['local_population']:,} نسمة محليين = <b>{cp_per_1k:.1f} منافس لكل 1000 نسمة</b><br>الحد الصحي < 1.5/1000. هذا السوق <b>مدمّر تماماً</b> للنشاط العادي."
+            elif cp_per_1k > 3.5:
+                warning_severity = "danger"
+                warning_msg = f"⚠️ <b>خطر شديد!</b><br>{comp_count} منافس لـ {a['local_population']:,} نسمة محليين = <b>{cp_per_1k:.1f}/1000</b><br>الفرص للنشاط العادي محدودة جداً - <b>التخصص ضروري</b>."
+            elif cp_per_1k > 1.5:
+                warning_severity = "warn"
+                warning_msg = f"🟡 <b>منافسة عالية</b><br>{comp_count} منافس لـ {a['local_population']:,} نسمة محليين = <b>{cp_per_1k:.1f}/1000</b><br>الدخول يتطلب تمايز قوي."
+            
+            if warning_severity:
+                bg_color = "rgba(239,68,68,0.15)" if warning_severity == "danger" else "rgba(245,158,11,0.12)"
+                border = "#ef4444" if warning_severity == "danger" else "#f59e0b"
+                st.markdown(f"""<div style="background:{bg_color}; border:2px solid {border}; border-radius:14px; padding:18px; margin-bottom:18px;">
+                    <div style="color:white; font-size:15px; line-height:1.8;">{warning_msg}</div>
+                </div>""", unsafe_allow_html=True)
+                
+                # عرض بدائل التخصص
+                alternatives = get_specialization_alternatives(target_cat_str)
+                if alternatives:
+                    st.markdown(f"""<div style="background:rgba(168,85,247,0.10); border:1px solid #a855f7; border-radius:14px; padding:18px; margin-bottom:18px;">
+                        <div style="color:#c4b5fd; font-size:15px; font-weight:700; margin-bottom:10px;">💡 بدائل التخصص - كيف تنجح في سوق مشبع؟</div>
+                        <div style="color:#94a3b8; font-size:13px; margin-bottom:14px;">بدلاً من فتح نشاط عادي يضيع في زحام المنافسة، فكّر في هذه البدائل المتخصصة:</div>
+                    </div>""", unsafe_allow_html=True)
+                    
+                    for i, alt in enumerate(alternatives[:5], 1):
+                        st.markdown(f"""<div style="background:#131826; border:1px solid #1f2937; border-radius:12px; padding:14px; margin-bottom:8px; border-right:4px solid #a855f7;">
+                            <div style="color:white; font-size:15px; font-weight:700; margin-bottom:4px;">{i}. {alt['name']}</div>
+                            <div style="color:#94a3b8; font-size:13px;">💡 <b>لماذا؟</b> {alt['why']}</div>
+                        </div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
     # 🎯 أفضل نشاط مقترح (لو ما حدد) - مع كيمياء العائلة
@@ -3326,19 +3835,42 @@ else:
         gi = a['gov_info']
         conf_label = {"high": "✅ مطابقة عالية", "medium": "⚠️ مطابقة متوسطة", "low": "⚠️ مطابقة محدودة"}.get(gi['confidence'], '-')
         gov_density = gi['data']['pop'] / gi['data']['area'] if gi['data']['area'] > 0 else 0
+        
+        # السكان المحليون المقدّرون
+        local_pop = a.get('local_population')
+        local_density_val = a.get('local_density', 0)
+        area_char = a.get('area_character', '-')
+        
+        local_section = ""
+        if local_pop:
+            local_section = f"""
+            <div style="background:rgba(16,185,129,0.10); border-right:3px solid #10b981; padding:12px; border-radius:10px; margin-top:12px;">
+                <div style="color:#86efac; font-size:13px; font-weight:700; margin-bottom:6px;">📊 التقدير المحلي (داخل نطاق التحليل)</div>
+                <div style="display:flex; gap:14px; flex-wrap:wrap; color:#cbd5e1; font-size:13px;">
+                    <div>👥 السكان المحليون: <b style="color:white;">~{local_pop:,}</b></div>
+                    <div>📊 الكثافة المحلية: <b style="color:white;">{local_density_val:,}</b> ن/كم²</div>
+                    <div>🏘️ نوع المنطقة: <b style="color:white;">{area_char}</b></div>
+                </div>
+                <div style="color:#94a3b8; font-size:11px; margin-top:6px;">
+                    💡 تقدير مبني على نوع المنطقة (مستنتج من عدد المحلات: {a['total_places']} محل/{(a['total_places']/(3.14*radius**2)):.1f} لكل كم²)
+                </div>
+            </div>
+            """
+        
         st.markdown(f"""
         <div class="governorate-card">
             <div class="gov-name">🏛️ بيانات المحافظة (تعداد GASTAT 2022)</div>
             <div style="color:white; font-size:20px; font-weight:800; margin-bottom:6px;">{gi['name']}</div>
             <div class="gov-stats">
-                <div class="gov-stat-item">👥 السكان: <b>{gi['data']['pop']:,}</b></div>
+                <div class="gov-stat-item">👥 سكان المحافظة: <b>{gi['data']['pop']:,}</b></div>
                 <div class="gov-stat-item">📐 المساحة: <b>{gi['data']['area']:,}</b> كم²</div>
-                <div class="gov-stat-item">📊 الكثافة: <b>{gov_density:.1f}</b> ن/كم²</div>
+                <div class="gov-stat-item">📊 الكثافة العامة: <b>{gov_density:.1f}</b> ن/كم²</div>
                 <div class="gov-stat-item">🗺️ المنطقة: <b>{gi['data']['region']}</b></div>
                 <div class="gov-stat-item">📍 المسافة: <b>{gi['distance_km']}</b> كم ({conf_label})</div>
             </div>
-            <div style="color:#fbbf24; font-size:12px; margin-top:10px;">
-                ⚠️ سكان المحافظة كاملة - الكثافة الفعلية في حيّك قد تختلف بشكل كبير
+            {local_section}
+            <div style="color:#94a3b8; font-size:11px; margin-top:10px;">
+                ⚠️ التقدير المحلي تقريبي - الكثافة الفعلية قد تختلف. للدقة الكاملة: استبيان ميداني.
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -3599,11 +4131,11 @@ else:
                     <div class="dna-value" style="color:{colors[k]};">{val}%</div>
                 </div>"""
             st.markdown(f"""<div class="info-card">
-                <div class="info-card-title">🧬 مؤشر تركيبة الحي <span style="font-size:11px; color:#94a3b8; font-weight:400;">(تقديري)</span></div>
-                <div style="color:#cbd5e1; margin-bottom:10px;">الطابع الأقوى المحتمل: <b style="color:white;">{d['main']}</b></div>
+                <div class="info-card-title">🏪 تركيبة المحلات في المحيط <span style="font-size:11px; color:#94a3b8; font-weight:400;">(تحليل العرض)</span></div>
+                <div style="color:#cbd5e1; margin-bottom:10px;">الطابع الأقوى للمحلات: <b style="color:white;">{d['main']}</b></div>
                 {dna_html}
                 <div style="color:#fbbf24; font-size:11px; margin-top:10px;">
-                    ⚠️ مؤشر مبني على نوع المحلات فقط - ليس بيانات سكانية فعلية
+                    📊 يصف <b>نوع المحلات الموجودة</b> (العرض) - ليس تركيبة السكان (الطلب)
                 </div>
             </div>""", unsafe_allow_html=True)
     
