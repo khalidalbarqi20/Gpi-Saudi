@@ -1421,9 +1421,9 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             reasons.append(f"السوق مشبع ({existing} منافس)")
 
         if main_culture in info['demand_map'] and info['demand_map'][main_culture] >= 80:
-            reasons.append(f"تركيبة الحي ({main_culture}) قد تدعم هذا النشاط")
+            reasons.append(f"تركيبة المحلات ({main_culture}) قد تدعم هذا النشاط")
         elif info['demand_map'].get(main_culture, 65) < 60:
-            reasons.append(f"تركيبة الحي ({main_culture}) قد لا تدعمه بقوة")
+            reasons.append(f"تركيبة المحلات ({main_culture}) قد لا تدعمه بقوة")
 
         if traffic_score >= 70 and cat in ('cafe', 'restaurant', 'fast_food'):
             reasons.append("حركة مرور عالية تجذب العملاء")
@@ -1731,6 +1731,33 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
             # نخفض النقاط لتعكس الواقع
             score = min(score, 55)
 
+    # ════════════════════════════════════════════════════════════
+    # 🚫 إصلاح إضافي: investment_score يتأثر بفيتو الإشباع العام
+    # لو في 3+ أنشطة مشبعة بشدة (cp_per_1k>3.5)، نخفض النقاط
+    # حتى لو ما حدد المستخدم نشاط معين
+    # ════════════════════════════════════════════════════════════
+    if local_population_estimate and local_population_estimate > 0:
+        heavily_saturated_count = 0
+        for cat_key, places in pbc.items():
+            if len(places) >= 5:  # نتجاهل الفئات الصغيرة
+                cp1k = (len(places) * 1000) / local_population_estimate
+                if cp1k > 3.5:
+                    heavily_saturated_count += 1
+        
+        # تخفيض نقاط الاستثمار بناءً على عدد الأنشطة المشبعة
+        if heavily_saturated_count >= 5:
+            score = min(score, 45)  # السوق مكتظ جداً
+        elif heavily_saturated_count >= 3:
+            score = min(score, 60)  # السوق مكتظ
+        elif heavily_saturated_count >= 1 and target_cat:
+            # لو في نشاط مشبع والمستخدم اختار شيئاً، نتأكد من المنطق
+            target_competitors = len(pbc.get(target_cat, []))
+            if target_competitors >= 5:
+                target_cp1k = (target_competitors * 1000) / local_population_estimate
+                if target_cp1k > 3.5:
+                    score = min(score, 35)  # السوق مدمّر للنشاط المختار
+                    contradiction_block = True
+
     # القرار النهائي
     if target_cat:
         if score >= 75 and not contradiction_block:
@@ -1807,19 +1834,40 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
 
     # نقاط القوة والانتباه
     strengths, cautions = [], []
+    
+    # حساب أولي: كم نشاط مشبع بشدة في المحيط؟
+    heavy_sat_in_area = 0
+    if local_population_estimate and local_population_estimate > 0:
+        for ck, places in pbc.items():
+            if len(places) >= 5:
+                cp = (len(places) * 1000) / local_population_estimate
+                if cp > 3.5:
+                    heavy_sat_in_area += 1
+    
     if traffic_score >= 70: strengths.append("حركة مرور عالية (مؤشر استدلالي)")
     if acc_score >= 70: strengths.append("سهولة وصول ممتازة")
-    if pop_score >= 65: strengths.append("كثافة سكانية جيدة على مستوى المحافظة")
+    if pop_score >= 65: strengths.append("كثافة سكانية جيدة")
     if comp_score >= 60 and target_cat: strengths.append("مستوى منافسة مقبول")
-    if active >= 5: strengths.append("تنوع تجاري في المنطقة")
+    
+    # "تنوع تجاري" يكون قوة فقط إذا لم يكن السوق مشبعاً
+    if active >= 5 and heavy_sat_in_area < 3: 
+        strengths.append("تنوع تجاري في المنطقة")
+    elif active >= 5 and heavy_sat_in_area >= 3:
+        # ⚠️ تنوع لكن مشبع - ليس قوة!
+        cautions.append(f"تنوع تجاري لكن مع {heavy_sat_in_area} فئات مشبعة - منافسة قاسية")
+    
     if opportunity >= 60: strengths.append("فرصة سوقية مرتفعة")
     if field_data and field_data.get('site_visits') == 'متعدد': strengths.append("بيانات ميدانية مؤكدة")
     
     if comp_score < 40 and target_cat: cautions.append("منافسة مرتفعة في النشاط المستهدف")
     if traffic_score < 40: cautions.append("حركة منخفضة - يحتاج جذب نشط")
-    if pop_score < 40: cautions.append("كثافة سكانية محدودة (مستوى المحافظة)")
+    if pop_score < 40: cautions.append("كثافة سكانية محدودة")
     if total < 5: cautions.append("بنية تجارية ضعيفة في المحيط")
-    if saturation > 80: cautions.append(f"السوق مشبع بنسبة {saturation}%")
+    if saturation > 80: cautions.append(f"السوق مشبع بنسبة {saturation}% للنشاط المختار")
+    if heavy_sat_in_area >= 5: 
+        cautions.append(f"🚫 السوق مكتظ - {heavy_sat_in_area} فئات مشبعة (>3.5 منافس/1000)")
+    elif heavy_sat_in_area >= 3:
+        cautions.append(f"⚠️ {heavy_sat_in_area} فئات مشبعة في المنطقة - فكّر في التخصص")
     if not gov_info: cautions.append("لا توجد بيانات سكان رسمية للموقع")
     if not field_data: cautions.append("لا توجد بيانات ميدانية - مطلوبة لرفع الدقة")
     
@@ -3836,44 +3884,39 @@ else:
         conf_label = {"high": "✅ مطابقة عالية", "medium": "⚠️ مطابقة متوسطة", "low": "⚠️ مطابقة محدودة"}.get(gi['confidence'], '-')
         gov_density = gi['data']['pop'] / gi['data']['area'] if gi['data']['area'] > 0 else 0
         
-        # السكان المحليون المقدّرون
+        # عرض البطاقة الأساسية للمحافظة
+        st.markdown(f"""<div class="governorate-card">
+<div class="gov-name">🏛️ بيانات المحافظة (تعداد GASTAT 2022)</div>
+<div style="color:white; font-size:20px; font-weight:800; margin-bottom:6px;">{gi['name']}</div>
+<div class="gov-stats">
+<div class="gov-stat-item">👥 سكان المحافظة: <b>{gi['data']['pop']:,}</b></div>
+<div class="gov-stat-item">📐 المساحة: <b>{gi['data']['area']:,}</b> كم²</div>
+<div class="gov-stat-item">📊 الكثافة العامة: <b>{gov_density:.1f}</b> ن/كم²</div>
+<div class="gov-stat-item">🗺️ المنطقة: <b>{gi['data']['region']}</b></div>
+<div class="gov-stat-item">📍 المسافة: <b>{gi['distance_km']}</b> كم ({conf_label})</div>
+</div>
+</div>""", unsafe_allow_html=True)
+        
+        # السكان المحليون المقدّرون - بطاقة منفصلة (تجنب التداخل)
         local_pop = a.get('local_population')
         local_density_val = a.get('local_density', 0)
         area_char = a.get('area_character', '-')
-        
-        local_section = ""
         if local_pop:
-            local_section = f"""
-            <div style="background:rgba(16,185,129,0.10); border-right:3px solid #10b981; padding:12px; border-radius:10px; margin-top:12px;">
-                <div style="color:#86efac; font-size:13px; font-weight:700; margin-bottom:6px;">📊 التقدير المحلي (داخل نطاق التحليل)</div>
-                <div style="display:flex; gap:14px; flex-wrap:wrap; color:#cbd5e1; font-size:13px;">
-                    <div>👥 السكان المحليون: <b style="color:white;">~{local_pop:,}</b></div>
-                    <div>📊 الكثافة المحلية: <b style="color:white;">{local_density_val:,}</b> ن/كم²</div>
-                    <div>🏘️ نوع المنطقة: <b style="color:white;">{area_char}</b></div>
-                </div>
-                <div style="color:#94a3b8; font-size:11px; margin-top:6px;">
-                    💡 تقدير مبني على نوع المنطقة (مستنتج من عدد المحلات: {a['total_places']} محل/{(a['total_places']/(3.14*radius**2)):.1f} لكل كم²)
-                </div>
-            </div>
-            """
-        
-        st.markdown(f"""
-        <div class="governorate-card">
-            <div class="gov-name">🏛️ بيانات المحافظة (تعداد GASTAT 2022)</div>
-            <div style="color:white; font-size:20px; font-weight:800; margin-bottom:6px;">{gi['name']}</div>
-            <div class="gov-stats">
-                <div class="gov-stat-item">👥 سكان المحافظة: <b>{gi['data']['pop']:,}</b></div>
-                <div class="gov-stat-item">📐 المساحة: <b>{gi['data']['area']:,}</b> كم²</div>
-                <div class="gov-stat-item">📊 الكثافة العامة: <b>{gov_density:.1f}</b> ن/كم²</div>
-                <div class="gov-stat-item">🗺️ المنطقة: <b>{gi['data']['region']}</b></div>
-                <div class="gov-stat-item">📍 المسافة: <b>{gi['distance_km']}</b> كم ({conf_label})</div>
-            </div>
-            {local_section}
-            <div style="color:#94a3b8; font-size:11px; margin-top:10px;">
-                ⚠️ التقدير المحلي تقريبي - الكثافة الفعلية قد تختلف. للدقة الكاملة: استبيان ميداني.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+            shop_per_km2 = a['total_places'] / (3.14159 * radius**2) if radius > 0 else 0
+            st.markdown(f"""<div style="background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.3); border-right:4px solid #10b981; padding:14px; border-radius:12px; margin-bottom:14px;">
+<div style="color:#86efac; font-size:13px; font-weight:700; margin-bottom:8px;">📊 التقدير المحلي (داخل نطاق التحليل)</div>
+<div style="color:#cbd5e1; font-size:13px; line-height:2;">
+👥 السكان المحليون: <b style="color:white;">~{local_pop:,}</b> &nbsp;|&nbsp;
+📊 الكثافة المحلية: <b style="color:white;">{local_density_val:,}</b> ن/كم² &nbsp;|&nbsp;
+🏘️ نوع المنطقة: <b style="color:white;">{area_char}</b>
+</div>
+<div style="color:#94a3b8; font-size:11px; margin-top:8px;">
+💡 تقدير مبني على نوع المنطقة (مستنتج من {a['total_places']} محل / {shop_per_km2:.1f} لكل كم²)
+</div>
+<div style="color:#fbbf24; font-size:11px; margin-top:4px;">
+⚠️ التقدير المحلي تقريبي - للدقة الكاملة استبيان ميداني.
+</div>
+</div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
     # 🧪 كيمياء العائلة - تحليل الانسجام مع المحيط
