@@ -1759,20 +1759,25 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
                     contradiction_block = True
 
     # القرار النهائي
+    # ════════════════════════════════════════════════════════════
+    # العتبات المعايرة (فجوات أوسع لتجنب القفز بين القرارات):
+    # ⭐ ممتاز (75+) | 💎 جيد (60-74) | 🟡 متوسط (50-59) 
+    # 🟠 ضعيف (35-49) | 🔴 غير مناسب (<35)
+    # ════════════════════════════════════════════════════════════
     if target_cat:
         if score >= 75 and not contradiction_block:
             decision = "افتح بثقة"
-            decision_emoji = "🟢"
+            decision_emoji = "⭐"
             decision_color = "#10b981"
             decision_bg = "rgba(16,185,129,0.12)"
             decision_summary = "هذا الموقع يحقق معظم شروط النجاح لنشاطك. ابدأ مع التركيز على التميز."
         elif score >= 60 and not contradiction_block:
             decision = "افتح بشروط"
-            decision_emoji = "🟢"
-            decision_color = "#10b981"
-            decision_bg = "rgba(16,185,129,0.10)"
+            decision_emoji = "💎"
+            decision_color = "#22c55e"
+            decision_bg = "rgba(34,197,94,0.10)"
             decision_summary = "موقع جيد لنشاطك لكن يحتاج تخطيط دقيق ودراسة ميدانية قبل البدء."
-        elif score >= 45:
+        elif score >= 50:
             decision = "فكّر مرتين"
             decision_emoji = "🟡"
             decision_color = "#f59e0b"
@@ -1781,7 +1786,7 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
                 decision_summary = f"السوق مشبع ({saturation}%) - النجاح يتطلب تميّزاً قوياً وعرض فريد."
             else:
                 decision_summary = "الموقع متوسط لنشاطك - تأكد من ميزتك التنافسية قبل الاستثمار."
-        elif score >= 30:
+        elif score >= 35:
             decision = "غير منصوح به"
             decision_emoji = "🟠"
             decision_color = "#f97316"
@@ -1796,24 +1801,24 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
     else:
         # بدون نشاط محدد
         if score >= 75:
-            decision = "فرصة ذهبية"
-            decision_emoji = "🌟"
+            decision = "موقع ممتاز"
+            decision_emoji = "⭐"
             decision_color = "#10b981"
             decision_bg = "rgba(16,185,129,0.12)"
             decision_summary = "موقع استثماري ممتاز - الحركة عالية والوصول سهل. النشاط المناسب سيُحدّد أدناه."
         elif score >= 60:
-            decision = "موقع واعد"
+            decision = "موقع جيد"
             decision_emoji = "💎"
-            decision_color = "#3b82f6"
-            decision_bg = "rgba(59,130,246,0.10)"
+            decision_color = "#22c55e"
+            decision_bg = "rgba(34,197,94,0.10)"
             decision_summary = "إمكانات استثمارية جيدة - الموقع يستحق الدراسة. اختر نشاطاً من المقترحات أدناه."
-        elif score >= 45:
+        elif score >= 50:
             decision = "موقع متوسط"
             decision_emoji = "🟡"
             decision_color = "#f59e0b"
             decision_bg = "rgba(245,158,11,0.10)"
             decision_summary = "الموقع له إمكانات محدودة. لو قررت الاستثمار، اختر نشاطاً متخصصاً يميّزك."
-        elif score >= 30:
+        elif score >= 35:
             decision = "موقع ضعيف"
             decision_emoji = "🟠"
             decision_color = "#f97316"
@@ -1839,7 +1844,6 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
                 ('clinic', 'عيادة', '⚕️'),
                 ('hospital', 'مستشفى', '🏥'),
                 ('school', 'مدرسة', '🏫'),
-                ('mosque', 'مسجد', '🕌'),
             ]
         },
         'essential': {
@@ -1849,8 +1853,6 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
             'categories': [
                 ('grocery', 'بقالة / سوبرماركت', '🛒'),
                 ('fuel', 'محطة وقود', '⛽'),
-                ('bank', 'بنك', '🏦'),
-                ('atm', 'صراف آلي', '🏧'),
                 ('restaurant', 'مطعم', '🍽️'),
                 ('services', 'خدمات عامة', '🔧'),
                 ('auto_repair', 'صيانة سيارات', '🔧'),
@@ -4102,23 +4104,6 @@ else:
             </div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
-    # 📄 زر تصدير PDF
-    # ═══════════════════════════════════════════════════════
-    from datetime import datetime
-    report_filename = f"GBI_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.html"
-    report_html = build_report_html(a, pbc, lat, lng, radius)
-    ec1, ec2, ec3 = st.columns([1, 2, 1])
-    with ec2:
-        st.download_button(
-            label="📄 تصدير التقرير الكامل (HTML قابل للطباعة PDF)",
-            data=report_html.encode('utf-8'),
-            file_name=report_filename,
-            mime="text/html",
-            use_container_width=True,
-        )
-    st.caption("💡 افتح الملف المُحمّل ثم اضغط 'اطبع / احفظ PDF' بالأعلى")
-
-    # ═══════════════════════════════════════════════════════
     # 📊 المؤشرات الثلاث
     # ═══════════════════════════════════════════════════════
     st.markdown('<div class="section-title">📊 المؤشرات الأساسية</div>', unsafe_allow_html=True)
@@ -4612,6 +4597,24 @@ else:
 💡 تقدير مبني على نوع المنطقة (مستنتج من {a['total_places']} محل / {shop_per_km2_b:.1f} لكل كم²)
 </div>
 </div>""", unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
+    # 📄 زر تصدير PDF - في الأسفل بعد كل المحتوى
+    # ═══════════════════════════════════════════════════════
+    from datetime import datetime
+    st.markdown('<div class="section-title">📄 تصدير التقرير</div>', unsafe_allow_html=True)
+    report_filename = f"GBI_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.html"
+    report_html = build_report_html(a, pbc, lat, lng, radius)
+    ec1, ec2, ec3 = st.columns([1, 2, 1])
+    with ec2:
+        st.download_button(
+            label="📄 تصدير التقرير الكامل (HTML قابل للطباعة PDF)",
+            data=report_html.encode('utf-8'),
+            file_name=report_filename,
+            mime="text/html",
+            use_container_width=True,
+        )
+    st.caption("💡 افتح الملف المُحمّل ثم اضغط 'اطبع / احفظ PDF' بالأعلى")
 
     # ═══════════════════════════════════════════════════════
     # 💬 المستشار الذكي
