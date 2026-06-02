@@ -1826,7 +1826,100 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
             decision_bg = "rgba(239,68,68,0.10)"
             decision_summary = "النشاط التجاري في المنطقة ضعيف جداً - يُنصح بالبحث عن موقع آخر."
 
-    # الخدمات المفقودة
+    # ════════════════════════════════════════════════════════════
+    # 🔴 الخدمات الأساسية الذكية - 3 مستويات (احتياج/أساسي/كمالي)
+    # ════════════════════════════════════════════════════════════
+    ESSENTIAL_TIERS = {
+        'critical': {
+            'name': 'احتياجات ضرورية',
+            'icon': '🚨',
+            'description': 'يجب أن تتوفر في أي منطقة سكنية',
+            'categories': [
+                ('pharmacy', 'صيدلية', '💊'),
+                ('clinic', 'عيادة', '⚕️'),
+                ('hospital', 'مستشفى', '🏥'),
+                ('school', 'مدرسة', '🏫'),
+                ('mosque', 'مسجد', '🕌'),
+            ]
+        },
+        'essential': {
+            'name': 'أساسيات يومية',
+            'icon': '📦',
+            'description': 'احتياجات يستخدمها السكان يومياً',
+            'categories': [
+                ('grocery', 'بقالة / سوبرماركت', '🛒'),
+                ('fuel', 'محطة وقود', '⛽'),
+                ('bank', 'بنك', '🏦'),
+                ('atm', 'صراف آلي', '🏧'),
+                ('restaurant', 'مطعم', '🍽️'),
+                ('services', 'خدمات عامة', '🔧'),
+                ('auto_repair', 'صيانة سيارات', '🔧'),
+            ]
+        },
+        'lifestyle': {
+            'name': 'كماليات نمط الحياة',
+            'icon': '🎯',
+            'description': 'فرص استثمارية تحسّن جودة الحياة',
+            'categories': [
+                ('cafe', 'مقهى', '☕'),
+                ('fast_food', 'وجبات سريعة', '🍔'),
+                ('beauty_salon', 'صالون تجميل', '💅'),
+                ('fitness_center', 'نادي رياضي', '💪'),
+                ('shopping', 'تسوق', '🛍️'),
+                ('clothing_store', 'محل ملابس', '👕'),
+                ('park', 'حديقة', '🌳'),
+                ('cinema', 'سينما', '🎬'),
+                ('car_wash', 'مغسلة سيارات', '🚿'),
+                ('library', 'مكتبة', '📚'),
+            ]
+        }
+    }
+
+    def _classify_service(cat_key, places_in_cat):
+        count = len(places_in_cat)
+        if count == 0:
+            return 'missing'
+        # نتحقق من الإشباع
+        if local_population_estimate and local_population_estimate > 0 and count >= 5:
+            cp_1k = (count * 1000) / local_population_estimate
+            if cp_1k > 3.5:
+                return 'oversaturated'
+            elif cp_1k > 1.5:
+                return 'high_competition'
+        return 'present'
+
+    essential_analysis = {}
+    for tier_key, tier_data in ESSENTIAL_TIERS.items():
+        tier_result = {
+            'name': tier_data['name'],
+            'icon': tier_data['icon'],
+            'description': tier_data['description'],
+            'services': []
+        }
+        for cat_key, ar_name, icon in tier_data['categories']:
+            places = pbc.get(cat_key, [])
+            status = _classify_service(cat_key, places)
+            cp_1k = 0
+            if local_population_estimate and len(places) > 0:
+                cp_1k = (len(places) * 1000) / local_population_estimate
+            tier_result['services'].append({
+                'cat_key': cat_key,
+                'name': ar_name,
+                'icon': icon,
+                'count': len(places),
+                'status': status,
+                'cp_per_1k': cp_1k,
+            })
+        essential_analysis[tier_key] = tier_result
+
+    # تحديد الفرص الأهم (مفقودة + إما احتياج أو كمالي مهم)
+    top_opportunities = []
+    for tier_key in ['critical', 'essential', 'lifestyle']:
+        for s in essential_analysis[tier_key]['services']:
+            if s['status'] == 'missing':
+                top_opportunities.append({**s, 'tier': tier_key})
+
+    # نسخة قديمة للتوافق مع PDF
     missing = []
     for key, label in {'pharmacy': "صيدلية", 'grocery': "بقالة/سوبرماركت", 'fuel': "محطة وقود"}.items():
         if len(pbc.get(key, [])) == 0:
@@ -1904,6 +1997,8 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
         'accessibility': accessibility, 'accessibility_score': acc_score,
         'pop_density': pop_density, 'pop_score': pop_score,
         'missing_services': missing,
+        'essential_analysis': essential_analysis,
+        'top_opportunities': top_opportunities,
         'top_competitors': top_competitors,
         'strengths': strengths, 'cautions': cautions,
         'target_cat': target_cat,
@@ -2908,9 +3003,71 @@ def build_report_html(a, pbc, lat, lng, radius):
         </div>
         """
 
-    # الخدمات المفقودة
+    # الخدمات الأساسية الذكية (PDF) - 3 مستويات
     missing_section = ""
-    if a.get('missing_services'):
+    if a.get('essential_analysis') and a['total_places'] >= 5 and not a.get('target_cat'):
+        ea = a['essential_analysis']
+        tier_colors_pdf = {
+            'critical': {'bg': '#fef2f2', 'border': '#ef4444', 'text': '#991b1b'},
+            'essential': {'bg': '#fffbeb', 'border': '#f59e0b', 'text': '#92400e'},
+            'lifestyle': {'bg': '#f0fdf4', 'border': '#10b981', 'text': '#065f46'},
+        }
+        tiers_html = ""
+        for tier_key in ['critical', 'essential', 'lifestyle']:
+            tier = ea[tier_key]
+            cdef = tier_colors_pdf[tier_key]
+            n_missing = sum(1 for s in tier['services'] if s['status'] == 'missing')
+            n_saturated = sum(1 for s in tier['services'] if s['status'] in ('oversaturated', 'high_competition'))
+            n_present = sum(1 for s in tier['services'] if s['status'] == 'present')
+
+            svc_rows = ""
+            for s in tier['services']:
+                if s['status'] == 'missing':
+                    icon_s, label = ("❌", "مفقود") if tier_key != 'lifestyle' else ("🎯", "فرصة!")
+                    color = "#ef4444" if tier_key in ('critical', 'essential') else "#10b981"
+                    detail = "ضروري" if tier_key == 'critical' else ("يومي" if tier_key == 'essential' else "فرصة جديدة")
+                elif s['status'] == 'oversaturated':
+                    icon_s, label, color, detail = "🚫", f"{s['count']} (مشبع)", "#dc2626", f"{s['cp_per_1k']:.1f}/1000"
+                elif s['status'] == 'high_competition':
+                    icon_s, label, color, detail = "⚠️", f"{s['count']} موجود", "#f59e0b", f"{s['cp_per_1k']:.1f}/1000"
+                else:
+                    icon_s, label, color, detail = "✅", f"{s['count']} موجود", "#10b981", "متوفر"
+                svc_rows += f"""<tr>
+<td style="padding:6px; font-size:13px;">{s['icon']} {s['name']}</td>
+<td style="padding:6px; color:{color}; font-weight:700; font-size:13px;">{icon_s} {label}</td>
+<td style="padding:6px; color:#6b7280; font-size:12px;">{detail}</td>
+</tr>"""
+
+            tiers_html += f"""<div style="background:{cdef['bg']}; border:1px solid {cdef['border']}; border-right:4px solid {cdef['border']}; border-radius:10px; padding:14px; margin-bottom:14px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+<div style="color:{cdef['text']}; font-size:15px; font-weight:700;">{tier['icon']} {tier['name']}</div>
+<div style="color:#6b7280; font-size:12px;">❌ {n_missing} • ⚠️ {n_saturated} • ✅ {n_present}</div>
+</div>
+<div style="color:#6b7280; font-size:12px; margin-bottom:8px;">{tier['description']}</div>
+<table style="width:100%; border-collapse:collapse;">{svc_rows}</table>
+</div>"""
+
+        # ملخص الفرص
+        top_opps_pdf = a.get('top_opportunities', [])
+        opps_html_pdf = ""
+        if top_opps_pdf:
+            opp_items = "".join(
+                f'<li style="padding:6px 0; font-size:13px;">{op["icon"]} <b>{op["name"]}</b> - {"🚨 احتياج" if op["tier"]=="critical" else "📦 أساسي" if op["tier"]=="essential" else "🎯 كمالي"}</li>'
+                for op in top_opps_pdf[:6]
+            )
+            opps_html_pdf = f"""<div style="background:#f5f3ff; border:1px solid #a855f7; border-radius:10px; padding:14px; margin-top:14px;">
+<h4 style="color:#7c3aed; margin-bottom:8px;">💎 أبرز الفرص المتاحة (مفقودة)</h4>
+<ul style="list-style:none; padding:0; margin:0;">{opp_items}</ul>
+</div>"""
+
+        missing_section = f"""<div class="section page-break">
+<h3>🎯 الخدمات في المنطقة - فرص واحتياجات</h3>
+<p style="color:#6b7280; font-size:13px; margin-bottom:14px;">تحليل لما هو موجود ومفقود حسب أولوية الاحتياج</p>
+{tiers_html}
+{opps_html_pdf}
+</div>"""
+    elif a.get('missing_services') and a.get('target_cat'):
+        # نسخة قديمة مختصرة مع تحديد نشاط
         items = "".join(f"<li>⚠️ {s}</li>" for s in a['missing_services'])
         missing_section = f"""<div class="section"><h3>🔍 خدمات أساسية مفقودة</h3><ul class="point-list warn">{items}</ul></div>"""
 
@@ -3700,6 +3857,127 @@ else:
     st.markdown(decision_card, unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
+    # ⚠️ تحذير: نطاق فارغ أو محدود
+    # ═══════════════════════════════════════════════════════
+    if a['total_places'] < 5:
+        st.markdown(f"""<div style="background:rgba(239,68,68,0.15); border:2px solid #ef4444; border-radius:14px; padding:18px; margin-bottom:18px;">
+<div style="color:#fca5a5; font-size:16px; font-weight:700; margin-bottom:8px;">⚠️ نطاق فارغ - بيانات غير كافية للتحليل</div>
+<div style="color:#cbd5e1; font-size:14px; line-height:1.7;">
+الموقع المحدد يحتوي على <b>{a['total_places']} محل فقط</b> في نطاق {radius} كم.<br>
+هذا قد يعني أنك في منطقة <b>نائية أو على أطراف المدينة</b>.<br><br>
+<b>💡 ماذا تفعل؟</b><br>
+• جرّب <b>نطاق أوسع</b> (5 أو 10 كم) لتحليل المحيط الأكبر<br>
+• تأكد من أن إحداثيات الموقع <b>صحيحة وفي وسط المدينة</b><br>
+• إذا كنت تستهدف هذا الموقع فعلاً، النتائج أدناه <b>تقديرية محدودة الدقة</b>
+</div>
+</div>""", unsafe_allow_html=True)
+    elif a['total_places'] < 20:
+        st.markdown(f"""<div style="background:rgba(245,158,11,0.10); border:1px solid #f59e0b; border-radius:12px; padding:14px; margin-bottom:14px;">
+<div style="color:#fbbf24; font-size:14px; font-weight:600;">⚠️ منطقة محدودة - {a['total_places']} محل فقط في نطاق {radius} كم</div>
+<div style="color:#cbd5e1; font-size:13px; margin-top:6px;">
+هذا قد يكون موقع على <b>أطراف المنطقة</b>. للحصول على صورة أوضح، جرّب نطاق أوسع (3-5 كم).
+</div>
+</div>""", unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
+    # 🎯 الخدمات الأساسية - 3 مستويات (يعرض دائماً عند عدم تحديد نشاط)
+    # ═══════════════════════════════════════════════════════
+    target_cat_str_check = a.get('target_cat')
+    if not target_cat_str_check and a.get('essential_analysis') and a['total_places'] >= 5:
+        ea = a['essential_analysis']
+        st.markdown('<div class="section-title">🎯 الخدمات في المنطقة - فرص واحتياجات</div>', unsafe_allow_html=True)
+        st.caption("تحليل لما هو موجود ومفقود حسب أولوية الاحتياج - يساعدك تختار النشاط الأنسب")
+
+        # نعرض كل tier في expandable section
+        tier_colors = {
+            'critical': {'bg': 'rgba(239,68,68,0.10)', 'border': '#ef4444', 'text': '#fca5a5'},
+            'essential': {'bg': 'rgba(245,158,11,0.10)', 'border': '#f59e0b', 'text': '#fbbf24'},
+            'lifestyle': {'bg': 'rgba(16,185,129,0.10)', 'border': '#10b981', 'text': '#86efac'},
+        }
+
+        for tier_key in ['critical', 'essential', 'lifestyle']:
+            tier = ea[tier_key]
+            colors = tier_colors[tier_key]
+            
+            # تقسيم الخدمات حسب الحالة
+            missing_svcs = [s for s in tier['services'] if s['status'] == 'missing']
+            present_svcs = [s for s in tier['services'] if s['status'] == 'present']
+            saturated_svcs = [s for s in tier['services'] if s['status'] in ('oversaturated', 'high_competition')]
+            
+            # نبني الجدول داخلياً
+            services_html = ""
+            for s in tier['services']:
+                if s['status'] == 'missing':
+                    icon_status = "❌"
+                    label = "مفقود" if tier_key != 'lifestyle' else "🎯 فرصة!"
+                    color = "#ef4444" if tier_key in ('critical', 'essential') else "#10b981"
+                    detail = "ضروري" if tier_key == 'critical' else ("يومي" if tier_key == 'essential' else "فرصة جديدة")
+                elif s['status'] == 'oversaturated':
+                    icon_status = "🚫"
+                    label = f"{s['count']} موجود (مشبع)"
+                    color = "#dc2626"
+                    detail = f"{s['cp_per_1k']:.1f}/1000 - تجنّب"
+                elif s['status'] == 'high_competition':
+                    icon_status = "⚠️"
+                    label = f"{s['count']} موجود"
+                    color = "#f59e0b"
+                    detail = f"{s['cp_per_1k']:.1f}/1000 - تحتاج تمايز"
+                else:
+                    icon_status = "✅"
+                    label = f"{s['count']} موجود"
+                    color = "#10b981"
+                    detail = "متوفر"
+                
+                services_html += f"""<div style="display:flex; align-items:center; gap:10px; padding:8px 12px; background:rgba(255,255,255,0.03); border-radius:8px; margin-bottom:6px;">
+<span style="font-size:18px;">{s['icon']}</span>
+<span style="color:white; flex:1; font-size:14px;">{s['name']}</span>
+<span style="color:{color}; font-size:12px; font-weight:600;">{icon_status} {label}</span>
+<span style="color:#94a3b8; font-size:11px; min-width:80px; text-align:left;">{detail}</span>
+</div>"""
+            
+            # ملخص فوقي
+            n_missing = len(missing_svcs)
+            n_saturated = len(saturated_svcs)
+            n_present = len(present_svcs)
+            
+            summary = []
+            if n_missing:
+                summary.append(f"❌ {n_missing} مفقود")
+            if n_saturated:
+                summary.append(f"⚠️ {n_saturated} مشبع")
+            if n_present:
+                summary.append(f"✅ {n_present} متوفر")
+            
+            st.markdown(f"""<div style="background:{colors['bg']}; border:1px solid {colors['border']}; border-right:4px solid {colors['border']}; border-radius:12px; padding:14px; margin-bottom:14px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+<div style="color:{colors['text']}; font-size:15px; font-weight:700;">{tier['icon']} {tier['name']}</div>
+<div style="color:#94a3b8; font-size:12px;">{' • '.join(summary)}</div>
+</div>
+<div style="color:#94a3b8; font-size:12px; margin-bottom:10px;">{tier['description']}</div>
+{services_html}
+</div>""", unsafe_allow_html=True)
+        
+        # ملخص الفرص الأهم
+        top_opps = a.get('top_opportunities', [])
+        if top_opps:
+            opportunity_items = ""
+            for opp in top_opps[:6]:
+                tier_label = {'critical': '🚨 احتياج', 'essential': '📦 أساسي', 'lifestyle': '🎯 كمالي'}.get(opp['tier'], '')
+                opportunity_items += f"""<div style="display:flex; align-items:center; gap:10px; padding:10px; background:rgba(168,85,247,0.08); border-radius:10px; margin-bottom:8px;">
+<span style="font-size:22px;">{opp['icon']}</span>
+<div style="flex:1;">
+<div style="color:white; font-weight:700; font-size:14px;">{opp['name']}</div>
+<div style="color:#c4b5fd; font-size:11px;">{tier_label}</div>
+</div>
+</div>"""
+            
+            st.markdown(f"""<div style="background:linear-gradient(135deg, rgba(168,85,247,0.10) 0%, #131826 100%); border:2px solid #a855f7; border-radius:14px; padding:18px; margin-bottom:18px;">
+<div style="color:#c4b5fd; font-size:15px; font-weight:700; margin-bottom:6px;">💎 أبرز الفرص المتاحة (خدمات مفقودة)</div>
+<div style="color:#94a3b8; font-size:12px; margin-bottom:12px;">هذه أنشطة غير موجودة في المنطقة - قد تكون فرصاً ذهبية:</div>
+{opportunity_items}
+</div>""", unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
     # 🚫 تحذير شديد لو النشاط المختار مشبع + بدائل التخصص
     # ═══════════════════════════════════════════════════════
     target_cat_str = a.get('target_cat')
@@ -3877,9 +4155,10 @@ else:
         </div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
-    # 🏛️ بطاقة المحافظة
+    # 🏛️ بطاقة المحافظة - تظهر هنا فقط مع نشاط محدد (سياق مهم للقرار)
+    # عند عدم تحديد نشاط، تظهر في الأسفل (الخدمات المفقودة أهم)
     # ═══════════════════════════════════════════════════════
-    if a.get('gov_info'):
+    if a.get('gov_info') and a.get('target_cat'):
         gi = a['gov_info']
         conf_label = {"high": "✅ مطابقة عالية", "medium": "⚠️ مطابقة متوسطة", "low": "⚠️ مطابقة محدودة"}.get(gi['confidence'], '-')
         gov_density = gi['data']['pop'] / gi['data']['area'] if gi['data']['area'] > 0 else 0
@@ -4271,9 +4550,10 @@ else:
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
     # ═══════════════════════════════════════════════════════
-    # 🔍 الخدمات المفقودة
+    # 🔍 الخدمات المفقودة - تظهر فقط مع نشاط محدد (للسياق)
+    # عند عدم تحديد نشاط، الـ tiers الذكية في الأعلى تغطي هذا
     # ═══════════════════════════════════════════════════════
-    if a.get('missing_services'):
+    if a.get('missing_services') and a.get('target_cat'):
         st.markdown('<div class="section-title">🔍 خدمات أساسية مفقودة</div>', unsafe_allow_html=True)
         missing_html = "".join(f'<div style="background:rgba(239,68,68,0.1); padding:10px 14px; border-radius:10px; color:#fca5a5; margin-bottom:8px;">⚠️ {s}</div>' for s in a['missing_services'])
         st.markdown(missing_html, unsafe_allow_html=True)
@@ -4291,6 +4571,47 @@ else:
             if len(places) > 10:
                 st.caption(f"... و {len(places) - 10} محل آخر")
             st.markdown("---")
+
+    # ═══════════════════════════════════════════════════════
+    # 🏛️ بطاقة المحافظة في الأسفل - تظهر هنا فقط بدون تحديد نشاط
+    # (مع تحديد نشاط تظهر في الأعلى بعد المؤشرات)
+    # ═══════════════════════════════════════════════════════
+    if a.get('gov_info') and not a.get('target_cat'):
+        gi = a['gov_info']
+        conf_label = {"high": "✅ مطابقة عالية", "medium": "⚠️ مطابقة متوسطة", "low": "⚠️ مطابقة محدودة"}.get(gi['confidence'], '-')
+        gov_density_b = gi['data']['pop'] / gi['data']['area'] if gi['data']['area'] > 0 else 0
+        
+        st.markdown('<div class="section-title">🏛️ السياق الإحصائي العام</div>', unsafe_allow_html=True)
+        st.caption("بيانات السكان والمساحة على مستوى المحافظة كاملة (مرجعية فقط)")
+        
+        st.markdown(f"""<div class="governorate-card">
+<div class="gov-name">🏛️ بيانات المحافظة (تعداد GASTAT 2022)</div>
+<div style="color:white; font-size:20px; font-weight:800; margin-bottom:6px;">{gi['name']}</div>
+<div class="gov-stats">
+<div class="gov-stat-item">👥 سكان المحافظة: <b>{gi['data']['pop']:,}</b></div>
+<div class="gov-stat-item">📐 المساحة: <b>{gi['data']['area']:,}</b> كم²</div>
+<div class="gov-stat-item">📊 الكثافة العامة: <b>{gov_density_b:.1f}</b> ن/كم²</div>
+<div class="gov-stat-item">🗺️ المنطقة: <b>{gi['data']['region']}</b></div>
+<div class="gov-stat-item">📍 المسافة: <b>{gi['distance_km']}</b> كم ({conf_label})</div>
+</div>
+</div>""", unsafe_allow_html=True)
+        
+        local_pop_b = a.get('local_population')
+        local_density_b = a.get('local_density', 0)
+        area_char_b = a.get('area_character', '-')
+        if local_pop_b:
+            shop_per_km2_b = a['total_places'] / (3.14159 * radius**2) if radius > 0 else 0
+            st.markdown(f"""<div style="background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.3); border-right:4px solid #10b981; padding:14px; border-radius:12px; margin-bottom:14px;">
+<div style="color:#86efac; font-size:13px; font-weight:700; margin-bottom:8px;">📊 التقدير المحلي (داخل نطاق التحليل)</div>
+<div style="color:#cbd5e1; font-size:13px; line-height:2;">
+👥 السكان المحليون: <b style="color:white;">~{local_pop_b:,}</b> &nbsp;|&nbsp;
+📊 الكثافة المحلية: <b style="color:white;">{local_density_b:,}</b> ن/كم² &nbsp;|&nbsp;
+🏘️ نوع المنطقة: <b style="color:white;">{area_char_b}</b>
+</div>
+<div style="color:#94a3b8; font-size:11px; margin-top:8px;">
+💡 تقدير مبني على نوع المنطقة (مستنتج من {a['total_places']} محل / {shop_per_km2_b:.1f} لكل كم²)
+</div>
+</div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
     # 💬 المستشار الذكي
