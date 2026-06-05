@@ -91,7 +91,7 @@ CATEGORIES = {
     "ev_charging_station": {"name": "شحن كهربائي", "icon": "🔌", "color": "#06b6d4", "group": "سيارات"},
     "parking": {"name": "مواقف", "icon": "🅿️", "color": "#475569", "group": "سيارات"},
     # صحة
-    "hospital": {"name": "مستشفيات", "icon": "🏥", "color": "#dc2626", "group": "صحة"},
+    "hospital": {"name": "مستشفيات ومراكز طبية", "icon": "🏥", "color": "#dc2626", "group": "صحة"},
     "clinic": {"name": "عيادات", "icon": "⚕️", "color": "#ef4444", "group": "صحة"},
     # تجميل
     "beauty_salon": {"name": "صالونات تجميل", "icon": "💅", "color": "#ec4899", "group": "تجميل"},
@@ -1500,7 +1500,9 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         # توليد "لماذا" مع تحذيرات صادقة
         reasons = []
         if existing == 0:
-            reasons.append(f"⚠️ لا يوجد {CATEGORIES[cat]['name']} - قد يعكس فرصة أو غياب طلب")
+            # تحديد ذكي: لو الفئة مقصوصة في فئات مشابهة = غالباً موجود بأسماء مختلفة
+            # وإلا = فجوة حقيقية محتملة
+            reasons.append(f"غير مسجّل في API - يحتاج تحقق ميداني")
         elif existing <= 2:
             reasons.append(f"منافسة محدودة ({existing} منافس)")
         elif existing > cap:
@@ -1618,10 +1620,9 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             
             # 🔴 تطبيق فيتو التشبع العام
             # حتى للأنشطة المفقودة (existing=0)، لو السوق العام مشبع → خصم
+            # (التحذير العام يظهر كبانر واحد في الأعلى - ليس في كل نشاط)
             if global_saturation_penalty > 0:
                 final_opp = max(0, final_opp - global_saturation_penalty)
-                if global_saturation_penalty >= 15:
-                    r['reasons'].insert(0, f"⚠️ السوق العام مكتظ ({heavily_saturated_cats} فئات مشبعة) - حذر إضافي مطلوب")
 
             # ════════════════════════════════════════════════════
             # 🚫 فيتو الإشباع الذكي - الإصلاح الأهم
@@ -2021,38 +2022,73 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
     # ════════════════════════════════════════════════════════════
     area_km2_local = math.pi * (radius_km ** 2)
 
-    # تحديد نوع المنطقة من عدد المحلات + كثافة المحلات
+    # 🔴 الإصلاح الجذري: نستخدم total_places (العدد المطلق) كمؤشر أساسي
+    # المشكلة السابقة: shop_density (محلات/كم²) في نطاق 10 كم يخفض بشكل مصطنع
+    # المنطق الجديد: عدد المحلات الكلي يعكس نشاط المنطقة بغض النظر عن المساحة
+    # ثم نتأكد بمؤشر shop_density للحالات الحدية
     shop_density = total / area_km2_local if area_km2_local > 0 else 0
 
-    if shop_density >= 40:
+    # نحدد نوع المنطقة بناءً على total_places أولاً، ثم shop_density ثانياً
+    if total >= 500:
+        # 500+ محل = مدينة كبيرة بدون شك
         area_character = "حضري مكتظ"
         expected_density_per_km2 = 8000
-    elif shop_density >= 25:
+    elif total >= 200:
+        # 200+ محل = حضري
         area_character = "حضري"
         expected_density_per_km2 = 4000
-    elif shop_density >= 15:
+    elif total >= 80:
+        # 80+ محل = سكني متوسط
         area_character = "سكني متوسط"
         expected_density_per_km2 = 1500
-    elif shop_density >= 6:
+    elif total >= 30:
+        # 30+ محل = سكني محدود
         area_character = "سكني محدود"
         expected_density_per_km2 = 400
-    elif shop_density >= 1:
+    elif total >= 8:
+        # 8-29 محل = ريفي
         area_character = "ريفي / أطراف"
         expected_density_per_km2 = 100
     else:
+        # أقل من 8 محل = نائي
         area_character = "نائي / فارغ"
         expected_density_per_km2 = 20
+    
+    # 🔴 تعديل ذكي: للنطاقات الصغيرة جداً (< 2 كم) نسمح بكثافات أعلى
+    # لأن النطاق الصغير في وسط مدينة قد يحوي كثافة عالية حتى مع محلات أقل
+    if radius_km < 2 and shop_density >= 40 and total >= 100:
+        area_character = "حضري مكتظ"
+        expected_density_per_km2 = 8000
 
     # تقدير السكان: الكثافة المتوقعة × مساحة النطاق
     local_density = expected_density_per_km2
     local_population_estimate = int(local_density * area_km2_local)
     urban_multiplier = expected_density_per_km2  # للتوافق مع الكود القديم
 
-    # إذا كان عندنا بيانات محافظة، نتحقق من المنطق:
-    # السكان المحليون لا يجب أن يتجاوزوا 30% من سكان المحافظة كاملة
+    # 🔴 cap نسبي ذكي: السكان المحليون لا يتجاوزوا:
+    # (أ) 60% من المحافظة (في النطاقات الكبيرة قد نغطي معظم المدينة)
+    # (ب) الكثافة المتوسطة للمحافظة × مساحة النطاق × معامل حضري
+    # المعامل: 5× للمناطق العادية، 25× للحضرية المكتظة (لأن المحافظات تشمل صحاري)
     if gov_info:
         gov_pop = gov_info['data']['pop']
-        max_reasonable = int(gov_pop * 0.3)
+        gov_area = gov_info['data']['area']
+        gov_avg_density = gov_pop / gov_area if gov_area > 0 else 0
+        
+        # معامل التضخيم يعتمد على نوع المنطقة
+        if area_character == "حضري مكتظ":
+            urban_factor = 30  # مدن مكتظة بكثافة 30× أعلى من متوسط المحافظة
+        elif area_character == "حضري":
+            urban_factor = 15
+        elif area_character == "سكني متوسط":
+            urban_factor = 8
+        else:
+            urban_factor = 3
+        
+        # الحد الأقصى: max(60% من المحافظة, الكثافة المتوسطة × مساحة × معامل)
+        max_by_share = int(gov_pop * 0.6)
+        max_by_density = int(gov_avg_density * area_km2_local * urban_factor)
+        max_reasonable = min(max_by_share, max(max_by_density, 5000))
+        
         if local_population_estimate > max_reasonable:
             local_population_estimate = max_reasonable
             local_density = int(local_population_estimate / area_km2_local) if area_km2_local > 0 else 0
@@ -2228,7 +2264,7 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
             'categories': [
                 ('pharmacy', 'صيدلية', '💊'),
                 ('clinic', 'عيادة', '⚕️'),
-                ('hospital', 'مستشفى', '🏥'),
+                ('hospital', 'مستشفى / مركز طبي', '🏥'),
                 ('school', 'مدرسة', '🏫'),
             ]
         },
@@ -3040,27 +3076,47 @@ def ai_enhance(analysis, pbc, lat, lng):
                 chem_text = f"\n- أقوى ترابط: {top_act['icon']} {top_act['cat_name']} ينسجم مع {top_syn['icon']} {top_syn['name']} ({top_syn['count']} محل)"
         
         # ════════════════════════════════════════════════════════════
-        # 🚨 prompt جديد - تحليل SWOT منظم بالأرقام
+        # 🚨 prompt صارم جداً - منع التناقضات والأرقام المكررة
         # ════════════════════════════════════════════════════════════
-        prompt = f"""أنت محلل استثمار تجاري في السعودية. أنشئ تحليل SWOT دقيق ومرتبط بالأرقام.
+        score = analysis['investment_score']
+        sat = analysis['saturation_score']
+        opp = analysis['opportunity_score']
+        local_pop = analysis.get('local_population', 0)
+        
+        # نحدد السقف المناسب للتوصية بناءً على الأرقام الحقيقية
+        if score < 40 or sat >= 95:
+            mandatory_tone = "موقع ضعيف أو غير مناسب - يجب أن تكون التوصية حذرة جداً"
+        elif score < 55:
+            mandatory_tone = "موقع متوسط الجودة فقط - لا تستخدم 'جيد' أو 'ممتاز'"
+        elif score < 70:
+            mandatory_tone = "موقع جيد لكن يحتاج دراسة - لا تستخدم 'ممتاز'"
+        else:
+            mandatory_tone = "موقع جيد"
+        
+        prompt = f"""أنت محلل استثمار تجاري صارم في السعودية. أنشئ تحليل SWOT دقيق.
 
 📍 الموقع: ({lat:.4f}, {lng:.4f}){gov_text}{local_text}
 🏪 المحلات: {summary}
-📊 المؤشرات: الفرصة {analysis['opportunity_score']}% | الإشباع {analysis['saturation_score']}% | الطلب {analysis['demand_score']}%
-🎯 القرار الحالي: {analysis['decision']} ({analysis['investment_score']}/100){competitor_names}{chem_text}{truncation_warn}
+📊 المؤشرات: الفرصة {opp}% | الإشباع {sat}% | الطلب {analysis['demand_score']}%
+🎯 التقييم: {analysis['decision']} ({score}/100){competitor_names}{chem_text}{truncation_warn}
 
-🚨 قواعد صارمة:
-1. كل نقطة في SWOT يجب أن تبدأ برقم محدد أو اسم منافس
-2. لا تستخدم كلام عام مثل "الموقع جيد" أو "فرصة كبيرة"
-3. كل نقطة جملة واحدة قصيرة (≤15 كلمة)
-4. ربط مباشر بالأرقام المعروضة أعلاه
-5. لو البيانات مقصوصة، اذكر في "التهديدات" أن السوق أكبر مما يظهر
+🚨 قواعد صارمة - أي مخالفة = رفض الإجابة:
+1. كل نقطة SWOT تبدأ برقم محدد أو اسم منافس فعلي
+2. **ممنوع** ذكر رقم السكان المحليين ({local_pop:,}) في أكثر من نقطة واحدة في كل القسم
+3. **ممنوع** تكرار نفس النقطة بكلمات مختلفة
+4. النبرة المطلوبة: {mandatory_tone}
+5. لو {sat}% تشبع → احذر من قول "موقع جيد" أو "فرصة كبيرة"
+6. لو {opp}% فرصة <30% → احذر من التفاؤل
+7. لا تخلط: "نقص الترفيه" يكون **إما** weakness **أو** opportunity (ليس الاثنين)
+8. لو البيانات مقصوصة، اذكر "السوق أكبر مما يظهر" في threats فقط
+9. كل نقطة جملة قصيرة (≤15 كلمة)
+10. لا تستخدم كلام عام أو إنشائي
 
 أعد JSON فقط:
 {{
-  "ai_recommendation": "ملخص الحالة في جملتين قصيرتين بالأرقام",
+  "ai_recommendation": "ملخص بجملتين بالأرقام - متماشي مع النبرة المطلوبة",
   "swot": {{
-    "strengths": ["نقطة 1 برقم محدد", "نقطة 2 برقم محدد", "نقطة 3 برقم محدد"],
+    "strengths": ["نقطة 1 برقم", "نقطة 2 برقم", "نقطة 3 برقم"],
     "weaknesses": ["نقطة 1 برقم", "نقطة 2 برقم", "نقطة 3 برقم"],
     "opportunities": ["فرصة 1 محددة", "فرصة 2 محددة", "فرصة 3 محددة"],
     "threats": ["تهديد 1 برقم", "تهديد 2 برقم", "تهديد 3 برقم"]
@@ -3072,8 +3128,39 @@ def ai_enhance(analysis, pbc, lat, lng):
         elif '```' in text:
             text = text.split('```')[1].split('```')[0]
         d = json.loads(text.strip())
-        analysis['ai_recommendation'] = d.get('ai_recommendation', '')
-        analysis['swot'] = d.get('swot', {})
+        
+        # 🔴 Validation: نتحقق من التناقض
+        ai_rec = d.get('ai_recommendation', '')
+        
+        # لو AI قال "جيد" أو "ممتاز" والنقاط منخفضة → نستبدل بنص محايد
+        if score < 50:
+            bad_words = ['جيد', 'ممتاز', 'مثالي', 'فرصة كبيرة', 'موقع رائع', 'إمكانات قوية']
+            for word in bad_words:
+                if word in ai_rec:
+                    ai_rec = f"الموقع يواجه تحديات كبيرة: تشبع {sat}% وفرصة {opp}% فقط. يحتاج تخصصاً قوياً أو نطاقاً أصغر."
+                    break
+        
+        # validation للـ SWOT - منع تكرار رقم السكان
+        swot_data = d.get('swot', {})
+        for swot_key in ['strengths', 'weaknesses', 'opportunities', 'threats']:
+            items = swot_data.get(swot_key, [])
+            # نحسب كم مرة ظهر رقم السكان في القسم
+            pop_str = f"{local_pop:,}"
+            pop_count = sum(1 for item in items if pop_str in str(item))
+            if pop_count > 1:
+                # نحذف التكرارات (نبقي الأول فقط)
+                seen_pop = False
+                filtered = []
+                for item in items:
+                    if pop_str in str(item):
+                        if seen_pop:
+                            continue
+                        seen_pop = True
+                    filtered.append(item)
+                swot_data[swot_key] = filtered
+        
+        analysis['ai_recommendation'] = ai_rec
+        analysis['swot'] = swot_data
         analysis['ai_enhanced'] = True
     except Exception:
         analysis['ai_enhanced'] = False
@@ -3351,9 +3438,21 @@ def build_report_html(a, pbc, lat, lng, radius):
         if dom_fam:
             dom_fam_html = f'<p style="color:#3b82f6; font-size:13px; margin-top:6px;">🏆 العائلة الغالبة: <b>{dom_fam["icon"]} {dom_fam["name"]}</b> ({dom_fam["count"]} محل)</p>'
         
+        # 🔴 عنوان ديناميكي
+        if final_score >= 60:
+            pdf_section_title = "🎯 أفضل نشاط مقترح لهذا الموقع"
+            pdf_section_subtitle = ""
+        elif final_score >= 40:
+            pdf_section_title = "⚠️ الأقل مخاطرة (السوق مكتظ نسبياً)"
+            pdf_section_subtitle = '<p style="color:#dc2626; font-size:11px;">تحذير: لا توجد فرص قوية، هذا أفضل ما هو متاح</p>'
+        else:
+            pdf_section_title = "🚨 الأقل مخاطرة (السوق مشبع)"
+            pdf_section_subtitle = '<p style="color:#dc2626; font-size:11px;">تحذير: كل الأنشطة عالية المخاطرة - يُنصح بموقع آخر</p>'
+        
         best_act_highlight = f"""
         <div class="section" style="border-color:#a855f7; background:rgba(168,85,247,0.05);">
-            <div style="color:#7c3aed; font-size:13px; font-weight:600; margin-bottom:6px;">🎯 أفضل نشاط مقترح لهذا الموقع</div>
+            <div style="color:#7c3aed; font-size:13px; font-weight:600; margin-bottom:6px;">{pdf_section_title}</div>
+            {pdf_section_subtitle}
             <h2 style="color:#1f2937;">{top_act['icon']} {top_act['cat_name']} <span style="background:#d1fae5; color:#047857; padding:6px 14px; border-radius:999px; font-size:18px;">{final_score}%</span></h2>
             <p style="margin-top:10px; color:#4b5563;"><b>لماذا هذا النشاط؟</b> {reasons_text}</p>
             <p style="color:#6b7280; font-size:13px; margin-top:6px;">
@@ -3481,7 +3580,7 @@ def build_report_html(a, pbc, lat, lng, radius):
                 </div>
                 <div class="activity-score bad">{final_score}%</div>
             </div>"""
-    worst_section = f"""<div class="section"><h3>❌ أنشطة يُنصح بتجنبها</h3>{worst_html}</div>""" if worst_html else ""
+    worst_section = f"""<div class="section"><h3>🚫 أنشطة عالية المخاطرة</h3>{worst_html}</div>""" if worst_html else ""
 
     # التحليل المالي
     financial_section = ""
@@ -4487,6 +4586,36 @@ else:
     st.markdown(decision_card, unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
+    # 🚨 بانر تحذيرات السوق الموحّد (مرة واحدة - لا تكرار في كل نشاط)
+    # ═══════════════════════════════════════════════════════
+    trunc_flags = a.get('truncation_flags', {})
+    truncated_count = sum(1 for f in trunc_flags.values() if f)
+    
+    # حساب الفئات المشبعة بشدة
+    heavy_sat = 0
+    if a.get('local_population') and a['local_population'] > 0:
+        for ck, places in pbc.items():
+            count = len(places)
+            effective = int(count * 2.5) if trunc_flags.get(ck) else count
+            if effective >= 5:
+                cp1k = (effective * 1000) / a['local_population']
+                if cp1k > 3.5:
+                    heavy_sat += 1
+    
+    if truncated_count >= 5 or heavy_sat >= 5:
+        warnings_html = ""
+        if truncated_count >= 5:
+            warnings_html += f'<div style="color:#fca5a5; font-size:13px; padding:4px 0;">📊 <b>{truncated_count} فئة</b> وصلت لحد API (25 محل) - الأعداد الفعلية أعلى</div>'
+        if heavy_sat >= 5:
+            warnings_html += f'<div style="color:#fca5a5; font-size:13px; padding:4px 0;">🚫 <b>{heavy_sat} فئة مشبعة</b> بشدة - السوق العام مكتظ</div>'
+        
+        st.markdown(f"""<div style="background:rgba(239,68,68,0.10); border:1px solid #ef4444; border-right:4px solid #ef4444; border-radius:12px; padding:14px; margin-bottom:18px;">
+<div style="color:#fecaca; font-size:14px; font-weight:700; margin-bottom:8px;">⚠️ تحذيرات السوق</div>
+{warnings_html}
+<div style="color:#94a3b8; font-size:11px; margin-top:8px;">💡 جرّب نطاقاً أصغر (2-3 كم) للحصول على بيانات أدق</div>
+</div>""", unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
     # 📊 تحليل SWOT - مصفوفة قرار بالأرقام (من AI)
     # ═══════════════════════════════════════════════════════
     if a.get('swot') and isinstance(a['swot'], dict):
@@ -4786,11 +4915,24 @@ else:
                 synergies_html += f'<div style="color:#cbd5e1; font-size:12px; padding:3px 0;">✓ {syn["icon"]} {syn["name"]} ({syn["count"]} محل) — <span style="color:#94a3b8;">{syn["reason"]}</span></div>'
             synergies_html += '</div>'
         
+        # 🔴 عنوان ديناميكي حسب قوة الفرصة
+        top_score_v = top_act.get('final_opportunity', top_act.get('opportunity_score', 0))
+        if top_score_v >= 60:
+            section_title = "🎯 أفضل نشاط مقترح لهذا الموقع"
+            section_subtitle = ""
+        elif top_score_v >= 40:
+            section_title = "⚠️ الأقل مخاطرة (السوق مكتظ نسبياً)"
+            section_subtitle = "تحذير: لا توجد فرص قوية، هذا أفضل ما هو متاح"
+        else:
+            section_title = "🚨 الأقل مخاطرة (السوق مشبع)"
+            section_subtitle = "تحذير: كل الأنشطة عالية المخاطرة - يُنصح بموقع آخر"
+        
         st.markdown(f"""<div style="background: linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(139,92,246,0.08) 100%);
             border: 2px solid #a855f7; border-radius: 18px; padding: 22px; margin-bottom: 18px;">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
                 <div style="flex:1; min-width:280px;">
-                    <div style="color:#c4b5fd; font-size:13px; font-weight:600; margin-bottom:6px;">🎯 أفضل نشاط مقترح لهذا الموقع</div>
+                    <div style="color:#c4b5fd; font-size:13px; font-weight:600; margin-bottom:6px;">{section_title}</div>
+                    {f'<div style="color:#fca5a5; font-size:11px; margin-bottom:6px;">{section_subtitle}</div>' if section_subtitle else ''}
                     <div style="color:white; font-size:26px; font-weight:800; margin-bottom:10px;">{top_act['icon']} {top_act['cat_name']}</div>
                     <div style="color:#e2e8f0; font-size:14px; line-height:1.7; margin-bottom:12px;">
                         💡 <b>لماذا هذا النشاط؟</b> {reasons_text}
@@ -5017,7 +5159,7 @@ else:
             </div>""", unsafe_allow_html=True)
 
     with col_worst:
-        st.markdown('<div class="section-title">❌ أنشطة يُنصح بتجنبها</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">🚫 أنشطة عالية المخاطرة</div>', unsafe_allow_html=True)
         if a.get('worst_activities'):
             st.caption("غير منسجمة مع المحيط أو السوق مشبع")
             for act in a['worst_activities']:
