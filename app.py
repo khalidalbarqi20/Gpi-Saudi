@@ -1175,10 +1175,14 @@ def dist_km(lat1, lng1, lat2, lng2):
     return R * 2 * math.asin(math.sqrt(a))
 
 
-def search_mapbox(lat, lng, cat, limit=25):
+def search_mapbox(lat, lng, cat, limit=25, proximity_offset=None):
     """البحث عن محلات في فئة معينة عبر Mapbox Search Box API"""
+    plat, plng = lat, lng
+    if proximity_offset:
+        plat += proximity_offset[0]
+        plng += proximity_offset[1]
     url = f"https://api.mapbox.com/search/searchbox/v1/category/{cat}"
-    params = {"access_token": MAPBOX, "proximity": f"{lng},{lat}", "limit": limit, "language": "ar"}
+    params = {"access_token": MAPBOX, "proximity": f"{plng},{plat}", "limit": limit, "language": "ar"}
     try:
         r = requests.get(url, params=params, timeout=15)
         if r.status_code == 200:
@@ -1188,37 +1192,119 @@ def search_mapbox(lat, lng, cat, limit=25):
     return []
 
 
+def _dedup_features(features, threshold_m=50):
+    """إزالة المكررات بناءً على القرب والاسم"""
+    unique = []
+    seen_coords = []
+    seen_names = set()
+    for f in features:
+        props = f.get('properties', {})
+        name = (props.get('name') or '').strip().lower()
+        coords = props.get('coordinates', {})
+        plat = coords.get('latitude')
+        plng = coords.get('longitude')
+        if not (plat and plng and name):
+            continue
+        # ✅ Dedup by name (normalized)
+        if name in seen_names:
+            continue
+        # ✅ Dedup by proximity (~50m)
+        is_dup = False
+        for slat, slng in seen_coords:
+            # تقريباً 1 درجة = 111 كم، 0.0005 درجة ≈ 55 متر
+            if abs(plat - slat) < 0.0005 and abs(plng - slng) < 0.0005:
+                is_dup = True
+                break
+        if is_dup:
+            continue
+        seen_names.add(name)
+        seen_coords.append((plat, plng))
+        unique.append(f)
+    return unique
+
+
+def search_mapbox_multi(lat, lng, cat, radius_km):
+    """
+    🔴 إصلاح Mapbox 25-cap:
+    بحث متعدد بنقاط بدلاً من نقطة واحدة + توسيع المصطلحات
+    يجلب 60-100+ نتيجة بدلاً من 25 لكل فئة
+    """
+    all_features = []
+    
+    # 1. النقطة الأصلية
+    all_features.extend(search_mapbox(lat, lng, cat, 25))
+    
+    # 2. لو النطاق كبير (>= 1.5 كم) نضيف بحث من 4 نقاط حول الموقع
+    if radius_km >= 1.5:
+        # تقريباً: 0.01 درجة ≈ 1.1 كم
+        offset = (radius_km * 0.45) / 111.0  # 45% من الشعاع
+        offsets = [
+            (offset, 0),       # شمال
+            (-offset, 0),      # جنوب
+            (0, offset),       # شرق
+            (0, -offset),      # غرب
+        ]
+        for off in offsets:
+            all_features.extend(search_mapbox(lat, lng, cat, 25, proximity_offset=off))
+    
+    # 3. dedup
+    return _dedup_features(all_features)
+
+
 def process(features, tlat, tlng, max_km):
-    """يفلتر النتائج حسب النطاق ويرجع قائمة مرتبة"""
+    """يفلتر النتائج حسب النطاق ويرجع قائمة مرتبة (مع dedup)"""
     places = []
     seen = set()
+    seen_coords = []
     for f in features:
         props = f.get('properties', {})
         name = props.get('name', '')
-        if not name or name in seen:
+        if not name:
             continue
-        seen.add(name)
+        name_norm = name.strip().lower()
+        if name_norm in seen:
+            continue
         coords = props.get('coordinates', {})
         plat = coords.get('latitude')
         plng = coords.get('longitude')
         if plat and plng:
+            # dedup بـ proximity (50m)
+            is_dup = False
+            for slat, slng in seen_coords:
+                if abs(plat - slat) < 0.0005 and abs(plng - slng) < 0.0005:
+                    is_dup = True
+                    break
+            if is_dup:
+                continue
             d = dist_km(tlat, tlng, plat, plng)
             if d <= max_km:
                 places.append({'name': name, 'addr': props.get('full_address', ''),
                                'dist': d, 'lat': plat, 'lng': plng})
+                seen.add(name_norm)
+                seen_coords.append((plat, plng))
     places.sort(key=lambda x: x['dist'])
     return places
 
 
 def comprehensive_scan(lat, lng, radius_km):
-    """فحص شامل لكل الفئات حول الموقع"""
+    """
+    🔴 فحص شامل محسّن:
+    - بحث متعدد بـ proximity points
+    - dedup صارم
+    - كشف اقتطاع API
+    """
     results = {}
+    truncation_flags = {}
     for cat in CATEGORIES:
-        feats = search_mapbox(lat, lng, cat, 25)
+        feats = search_mapbox_multi(lat, lng, cat, radius_km)
         places = process(feats, lat, lng, radius_km)
         if places:
             results[cat] = places
-    return results
+            # علم اقتطاع: لو عدد المحلات >= 24 (قريب من سقف Mapbox 25)
+            # هذا مؤشر على أن البيانات الحقيقية أكبر
+            if len(places) >= 24:
+                truncation_flags[cat] = True
+    return results, truncation_flags
 
 
 # ============================================================================
@@ -1348,7 +1434,7 @@ def confidence_score(pbc, total_places, radius_km, has_field_data=False, has_gov
 # ============================================================================
 # [الدفعة 3] ترتيب الأنشطة (مع تحذير منطقي صادق)
 # ============================================================================
-def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_data=None, local_population=None):
+def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_data=None, local_population=None, truncation_flags=None):
     """
     صنّف الأنشطة من الأفضل للأسوأ.
     
@@ -1451,6 +1537,59 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
     #      - 30-50 → خطر شديد (خصم 30 نقطة + تحذير)
     #      - >50 → كارثة (خصم 50 نقطة + تحويل للقائمة الحمراء)
     # ════════════════════════════════════════════════════════════
+    
+    # 🔴 إصلاح: فيتو التشبع العام
+    # نحسب نسبة الفئات المشبعة (cp_per_1k > 3.5) من إجمالي الفئات المهمة
+    # إذا 5+ فئات مشبعة = السوق العام مكتظ → خصم عام من كل النتائج
+    # 🔴 معامل تصحيح للبيانات المقصوصة:
+    # عندما الفئة تصل لـ 24-25 محل، الرقم الحقيقي قد يكون 2-5× أكبر
+    # نضرب العدد بمعامل 2.5 للفئات المقصوصة (تقدير محافظ)
+    # 🔴 إضافة مهمة: في الأسواق المكتظة، اقتطاع البيانات نفسه = إشارة للتشبع
+    truncation_flags = truncation_flags or {}
+    trunc_count = sum(1 for f in truncation_flags.values() if f)
+    
+    global_saturation_penalty = 0
+    heavily_saturated_cats = 0
+    if local_population and local_population > 0:
+        total_meaningful_cats = 0
+        for cat_key, places in pbc.items():
+            count = len(places)
+            # 🔴 إذا الفئة مقصوصة، نضرب العدد بـ 2.5 للحساب التقريبي
+            effective_count = int(count * 2.5) if truncation_flags.get(cat_key) else count
+            if effective_count >= 5:
+                total_meaningful_cats += 1
+                cp1k = (effective_count * 1000) / local_population
+                if cp1k > 3.5:
+                    heavily_saturated_cats += 1
+    
+    # 🔴 منطق جديد: اعتبار اقتطاع البيانات في الحساب
+    # كل فئة مقصوصة = إشارة قوية على وجود منافسة فعلية كثيفة (Mapbox يقص فقط عند الاكتظاظ الفعلي)
+    # 8+ فئات مقصوصة = منطقة كثيفة المنافسة → خصم كبير حتى لو cp1k منخفض
+    truncation_penalty_addon = 0
+    if trunc_count >= 15:
+        truncation_penalty_addon = 25  # كارثة بيانات
+    elif trunc_count >= 10:
+        truncation_penalty_addon = 18
+    elif trunc_count >= 7:
+        truncation_penalty_addon = 12
+    elif trunc_count >= 5:
+        truncation_penalty_addon = 7
+    
+    # عتبات الخصم العام
+    if heavily_saturated_cats >= 15:
+        global_saturation_penalty = 40
+    elif heavily_saturated_cats >= 10:
+        global_saturation_penalty = 30
+    elif heavily_saturated_cats >= 7:
+        global_saturation_penalty = 20
+    elif heavily_saturated_cats >= 5:
+        global_saturation_penalty = 12
+    elif heavily_saturated_cats >= 3:
+        global_saturation_penalty = 6
+    
+    # نأخذ المجموع الأكبر بين الـ saturation_penalty و truncation_penalty
+    global_saturation_penalty = max(global_saturation_penalty, truncation_penalty_addon)
+    
     for r in results:
         chem = family_chemistry_analysis(r['cat_key'], pbc)
         if chem:
@@ -1476,6 +1615,13 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             # بونص العائلة الغالبة
             if chem.get('aligned_with_dominant'):
                 final_opp = min(100, final_opp + 3)
+            
+            # 🔴 تطبيق فيتو التشبع العام
+            # حتى للأنشطة المفقودة (existing=0)، لو السوق العام مشبع → خصم
+            if global_saturation_penalty > 0:
+                final_opp = max(0, final_opp - global_saturation_penalty)
+                if global_saturation_penalty >= 15:
+                    r['reasons'].insert(0, f"⚠️ السوق العام مكتظ ({heavily_saturated_cats} فئات مشبعة) - حذر إضافي مطلوب")
 
             # ════════════════════════════════════════════════════
             # 🚫 فيتو الإشباع الذكي - الإصلاح الأهم
@@ -1556,20 +1702,243 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
 # ============================================================================
 # [الدفعة 4] التحليل الرئيسي - منطق صادق وبدون تخمين
 # ============================================================================
+# ════════════════════════════════════════════════════════════
+# 🔴 تحليل SWOT حقيقي مبني على الأرقام
+# ════════════════════════════════════════════════════════════
+def build_swot_analysis(a, pbc, local_population, area_character, traffic_score, acc_score):
+    """يبني تحليل SWOT حقيقي بأرقام محددة من البيانات الفعلية"""
+    
+    swot = {
+        'strengths': [],
+        'weaknesses': [],
+        'opportunities': [],
+        'threats': [],
+    }
+    
+    target_cat = a.get('target_cat')
+    
+    # ═══ Strengths - نقاط القوة ═══
+    if traffic_score >= 75:
+        swot['strengths'].append(f"حركة مرور عالية (مؤشر {traffic_score}/100) - يدعم الأنشطة التجارية")
+    if acc_score >= 70:
+        swot['strengths'].append(f"سهولة وصول ممتازة ({acc_score}/100) - عملاء قادرون على الوصول")
+    if a.get('best_activities') and len(a['best_activities']) > 0:
+        top = a['best_activities'][0]
+        synergies = top.get('synergies', [])
+        if synergies:
+            syn = synergies[0]
+            swot['strengths'].append(f"ترابطات قوية: {syn['icon']} {syn['name']} ({syn['count']} محل) - يدعم نشاطك")
+    if a.get('total_places', 0) >= 50:
+        swot['strengths'].append(f"بنية تجارية ناضجة ({a['total_places']} محل) - الحركة موجودة")
+    
+    # ═══ Weaknesses - نقاط الضعف ═══
+    opportunity = a.get('opportunity_score', 0)
+    saturation = a.get('saturation_score', 0)
+    
+    # 🔴 حساب عدد الفئات المشبعة بشدة (مع معامل التصحيح للبيانات المقصوصة)
+    trunc = a.get('truncation_flags', {})
+    trunc_count = sum(1 for f in trunc.values() if f)
+    
+    heavy_sat_count = 0
+    if local_population and local_population > 0:
+        for cat_key, places in pbc.items():
+            count = len(places)
+            # نضرب بـ 2.5 للفئات المقصوصة (تقدير الواقع)
+            effective_count = int(count * 2.5) if trunc.get(cat_key) else count
+            if effective_count >= 5:
+                cp1k = (effective_count * 1000) / local_population
+                if cp1k > 3.5:
+                    heavy_sat_count += 1
+    
+    # 🔴 نضع weaknesses قدر الإمكان (الأولوية للأرقام الحقيقية)
+    
+    # 1) Truncation - هذا الأهم في الأسواق المكتظة
+    if trunc_count >= 10:
+        swot['weaknesses'].append(f"🚫 اقتطاع بيانات شديد في {trunc_count} فئة - السوق الفعلي أكثف بكثير مما يظهر")
+    elif trunc_count >= 5:
+        swot['weaknesses'].append(f"📊 اقتطاع بيانات في {trunc_count} فئة - المنافسة الفعلية أعلى")
+    elif trunc_count >= 3:
+        swot['weaknesses'].append(f"⚠️ اقتطاع بيانات في {trunc_count} فئة - بعض الأرقام قد تكون أقل من الواقع")
+    
+    # 2) كثافة المحلات العامة - مؤشر على سوق مكتظ
+    total_places = a.get('total_places', 0)
+    if total_places >= 400:
+        swot['weaknesses'].append(f"بنية تجارية كثيفة جداً ({total_places} محل) - منافسة عامة شرسة")
+    elif total_places >= 200:
+        swot['weaknesses'].append(f"بنية تجارية ناضجة ({total_places} محل) - يحتاج تمايز قوي")
+    elif total_places < 20:
+        swot['weaknesses'].append(f"بنية تجارية محدودة جداً ({total_places} محل) - سوق صغير")
+    
+    # 3) فئات مشبعة (محسوبة بمعامل التصحيح)
+    if heavy_sat_count >= 5:
+        swot['weaknesses'].append(f"⚠️ {heavy_sat_count} فئات مشبعة بشدة - منافسة عامة شرسة")
+    elif heavy_sat_count >= 3:
+        swot['weaknesses'].append(f"⚠️ {heavy_sat_count} فئات مشبعة - بعض القطاعات مكتظة")
+    
+    # 4) فرصة منخفضة (للنشاط المختار)
+    if target_cat:
+        if opportunity < 30:
+            swot['weaknesses'].append(f"فرصة دخول منخفضة جداً ({opportunity}%) - الأسواق التقليدية مشبعة")
+        elif opportunity < 50:
+            swot['weaknesses'].append(f"فرصة دخول متوسطة ({opportunity}%) - يحتاج تمايز")
+    
+    # 5) تشبع عالٍ (للنشاط المختار)
+    if target_cat and saturation >= 85:
+        swot['weaknesses'].append(f"تشبع سوقي للنشاط ({saturation}%) - منافسة شرسة")
+    
+    # 6) منافسة مباشرة للنشاط المختار
+    if target_cat and target_cat in pbc:
+        comp_count = len(pbc[target_cat])
+        if comp_count >= 10 and local_population and local_population > 0:
+            cp1k = (comp_count * 1000) / local_population
+            if cp1k > 2:
+                swot['weaknesses'].append(f"{comp_count} منافس مباشر بنسبة {cp1k:.1f}/1000 نسمة")
+        elif comp_count >= 5:
+            swot['weaknesses'].append(f"{comp_count} منافس مباشر للنشاط المستهدف")
+        if comp_count == 0 and trunc_count >= 5:
+            swot['weaknesses'].append(f"النشاط غير ظاهر في API لكن السوق العام مكتظ - يحتاج تحقق ميداني")
+    
+    # 7) حركة منخفضة
+    if traffic_score < 50:
+        swot['weaknesses'].append(f"حركة مرور محدودة ({traffic_score}/100) - يحتاج جذب نشط")
+    
+    # 8) منطقة ريفية/نائية
+    if area_character in ('ريفي / أطراف', 'نائي / فارغ'):
+        swot['weaknesses'].append(f"المنطقة '{area_character}' - بنية تجارية محدودة")
+    
+    # ═══ Opportunities - الفرص ═══
+    ea = a.get('essential_analysis', {})
+    
+    # فرص الاحتياجات الضرورية المفقودة
+    critical_missing = []
+    if 'critical' in ea:
+        for s in ea['critical']['services']:
+            if s['status'] == 'missing':
+                critical_missing.append(f"{s['icon']} {s['name']}")
+    if critical_missing:
+        swot['opportunities'].append(f"احتياجات ضرورية مفقودة: {' • '.join(critical_missing[:3])} - طلب مضمون")
+    
+    # فرص الكماليات المفقودة
+    lifestyle_missing = []
+    if 'lifestyle' in ea:
+        for s in ea['lifestyle']['services']:
+            if s['status'] == 'missing':
+                lifestyle_missing.append(f"{s['icon']} {s['name']}")
+    if lifestyle_missing and a.get('total_places', 0) >= 30:
+        # فقط في المناطق العامرة، الكماليات المفقودة فرصة
+        swot['opportunities'].append(f"كماليات مفقودة (فرص نمط حياة): {' • '.join(lifestyle_missing[:3])}")
+    
+    # فرص الانسجام
+    if a.get('best_activities') and len(a['best_activities']) >= 2:
+        top2 = a['best_activities'][:2]
+        unique_acts = [f"{x['icon']} {x['cat_name']}" for x in top2]
+        swot['opportunities'].append(f"أنشطة منسجمة مع المحيط: {' • '.join(unique_acts)}")
+    
+    if traffic_score >= 75 and saturation < 50:
+        swot['opportunities'].append("حركة عالية + إشباع منخفض = ظرف مثالي للدخول")
+    
+    # ═══ Threats - التهديدات ═══
+    total_places_t = a.get('total_places', 0)
+    
+    # 1) منافسين مباشرين للنشاط المستهدف
+    if target_cat and target_cat in pbc:
+        comp_count = len(pbc[target_cat])
+        is_target_truncated = trunc.get(target_cat, False)
+        if comp_count >= 15:
+            top_competitors = pbc[target_cat][:2]
+            comp_names = [c.get('name', '?') for c in top_competitors]
+            suffix = "+" if is_target_truncated else ""
+            swot['threats'].append(f"{comp_count}{suffix} منافس مباشر (مثل: {' • '.join(comp_names)})")
+        elif comp_count >= 5:
+            swot['threats'].append(f"{comp_count} منافس مباشر في النشاط المستهدف")
+    
+    # 2) Truncation - علامة قوية على سوق مكتظ فعلياً
+    if trunc_count >= 10:
+        swot['threats'].append(f"🚫 السوق فعلياً مكتظ - {trunc_count} فئة وصلت لحد API")
+    elif trunc_count >= 5:
+        swot['threats'].append(f"السوق أكثر اكتظاظاً من الظاهر - {trunc_count} فئة مقصوصة")
+    
+    # 3) قطاعات مشبعة بشدة (بأسماء)
+    if heavy_sat_count >= 3:
+        top_saturated_cats = []
+        if local_population and local_population > 0:
+            cat_cp1k = []
+            for cat_key, places in pbc.items():
+                count = len(places)
+                effective_count = int(count * 2.5) if trunc.get(cat_key) else count
+                if effective_count >= 5:
+                    cp1k = (effective_count * 1000) / local_population
+                    if cp1k > 3.5:
+                        cat_info = CATEGORIES.get(cat_key, {})
+                        cat_cp1k.append((cat_info.get('name', cat_key), cat_info.get('icon', ''), cp1k))
+            cat_cp1k.sort(key=lambda x: -x[2])
+            top_saturated_cats = [f"{x[1]} {x[0]}" for x in cat_cp1k[:3]]
+        if top_saturated_cats:
+            swot['threats'].append(f"قطاعات مشبعة بشدة: {' • '.join(top_saturated_cats)}")
+    
+    # 4) منطقة كثيفة المحلات
+    if total_places_t >= 200 and (trunc_count >= 3 or heavy_sat_count >= 3):
+        swot['threats'].append(f"بيئة شديدة المنافسة - {total_places_t}+ محل تتنافس على نفس العملاء")
+    
+    # 5) منطقة ريفية/نائية
+    if area_character in ('ريفي / أطراف', 'نائي / فارغ'):
+        swot['threats'].append(f"المنطقة '{area_character}' - حجم سوق محدود")
+    
+    # 6) منطقة تجارية مشبعة (نشاط محدد)
+    if target_cat and a.get('total_places', 0) >= 100 and saturation >= 80:
+        swot['threats'].append("منطقة تجارية ناضجة ومشبعة - حصة سوقية محدودة")
+    
+    # 7) عدم وجود بيانات سكان
+    if not a.get('gov_info'):
+        swot['threats'].append("غياب البيانات السكانية الرسمية - تقديرات قد تكون غير دقيقة")
+    
+    # 8) فجوة نسب: تشبع 100% مع فرصة <30%
+    if target_cat and saturation >= 95 and opportunity < 30:
+        swot['threats'].append(f"تناقض حاد: تشبع {saturation}% مع فرصة {opportunity}% - سوق مكتمل")
+    
+    # ضمان قوائم غير فارغة
+    if not swot['strengths']:
+        swot['strengths'].append("لا توجد نقاط قوة واضحة - تحقق ميداني مطلوب")
+    if not swot['weaknesses']:
+        swot['weaknesses'].append("لا توجد نقاط ضعف ظاهرة من البيانات")
+    if not swot['opportunities']:
+        swot['opportunities'].append("لا توجد فرص ظاهرة بدون نشاط محدد")
+    if not swot['threats']:
+        swot['threats'].append("لا توجد تهديدات ظاهرة")
+    
+    return swot
+
+
 def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
     """
     التحليل الرئيسي للموقع.
     
-    التغييرات v3:
-    - ❌ حُذف "السكان المقدّرون" المخمّن
-    - ❌ حُذف "كثافة الذروة" (3 أوقات نفس النتيجة)
-    - ❌ حُذف مقارنة المدن
-    - ✅ منع التناقض المنطقي (لا "افتح" لو الفرصة <40% أو الإشباع >80%)
-    - ✅ يستخدم بيانات السكان الحقيقية من gov_info
-    - ✅ يستخدم البيانات الميدانية من field_data
+    التغييرات الحرجة:
+    - ✅ كشف تطابق الأرقام (Mapbox truncation عند 25)
+    - ✅ ربط investment_score بالتشبع العام
+    - ✅ منع توصيات "فرصة!" المضللة في الأسواق المكتظة
+    - ✅ تحليل SWOT بدلاً من نص إنشائي
     """
     total = sum(len(v) for v in pbc.values())
     active = len(pbc)
+
+    # ════════════════════════════════════════════════════════════
+    # 🚨 إصلاح حرج: كشف بيانات Mapbox المقصوصة
+    # Mapbox يرجع 25 محل كحد أقصى لكل فئة. لو كثير من الفئات على 25
+    # يعني نحن في منطقة مكتظة والأرقام مكبوتة.
+    # ════════════════════════════════════════════════════════════
+    MAPBOX_LIMIT = 25
+    # عدّ كم فئة وصلت لحد أو قريبة منه (≥23) من بين الفئات الكبيرة (≥10)
+    categories_at_limit = sum(1 for places in pbc.values() if len(places) >= 23)
+    categories_significant = sum(1 for places in pbc.values() if len(places) >= 10)
+    data_is_truncated = False
+    truncation_severity = None
+    if categories_at_limit >= 5:
+        data_is_truncated = True
+        truncation_severity = "severe"  # 5+ فئات مقصوصة = منطقة مكتظة جداً
+    elif categories_at_limit >= 3:
+        data_is_truncated = True
+        truncation_severity = "moderate"
 
     area_km2 = math.pi * (radius_km ** 2)
     density = total / area_km2 if area_km2 > 0 else 0
@@ -1758,6 +2127,23 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
                     score = min(score, 35)  # السوق مدمّر للنشاط المختار
                     contradiction_block = True
 
+    # ════════════════════════════════════════════════════════════
+    # 🚨 إصلاح إضافي: ربط النقاط بالتشبع العام والبيانات المقصوصة
+    # ════════════════════════════════════════════════════════════
+    # لو البيانات مقصوصة (مدينة مكتظة) - يعني السوق مشبع فعلياً
+    if data_is_truncated:
+        if truncation_severity == "severe":
+            score = min(score, 50)  # 5+ فئات مقصوصة = منطقة مكتظة جداً
+        elif truncation_severity == "moderate":
+            score = min(score, 60)
+    
+    # لو الإشباع العام >= 90% (نشاط محدد)، نخصم بشدة
+    if target_cat and saturation >= 90:
+        score = min(score, 40)
+        contradiction_block = True
+    elif target_cat and saturation >= 80:
+        score = min(score, 55)
+
     # القرار النهائي
     # ════════════════════════════════════════════════════════════
     # العتبات المعايرة (فجوات أوسع لتجنب القفز بين القرارات):
@@ -1880,6 +2266,15 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
     def _classify_service(cat_key, places_in_cat):
         count = len(places_in_cat)
         if count == 0:
+            # ════════════════════════════════════════════════════
+            # 🚨 في المنطقة المكتظة (truncated data)، "0 محل" قد يعني:
+            #   - فعلاً غير موجود (فرصة حقيقية) - نادر
+            #   - أو غياب طلب (في حي مكتظ، عدم الوجود = إشارة سلبية)
+            # القرار: في المنطقة المكتظة، نصنّف "missing" كـ "absent" (غياب طلب)
+            # في المنطقة الهادئة، يبقى "missing" (فرصة محتملة)
+            # ════════════════════════════════════════════════════
+            if data_is_truncated or total >= 200:
+                return 'likely_absent'  # غياب طلب وليس فرصة
             return 'missing'
         # نتحقق من الإشباع
         if local_population_estimate and local_population_estimate > 0 and count >= 5:
@@ -1888,6 +2283,9 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
                 return 'oversaturated'
             elif cp_1k > 1.5:
                 return 'high_competition'
+        # لو الفئة وصلت حد Mapbox، نضعها كـ "truncated"
+        if count >= 23:
+            return 'truncated_likely_saturated'
         return 'present'
 
     essential_analysis = {}
@@ -1914,11 +2312,11 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
             })
         essential_analysis[tier_key] = tier_result
 
-    # تحديد الفرص الأهم (مفقودة + إما احتياج أو كمالي مهم)
+    # تحديد الفرص الأهم - فقط فعلاً مفقودة (ليس "غياب طلب")
     top_opportunities = []
     for tier_key in ['critical', 'essential', 'lifestyle']:
         for s in essential_analysis[tier_key]['services']:
-            if s['status'] == 'missing':
+            if s['status'] == 'missing':  # فقط الفرص الحقيقية
                 top_opportunities.append({**s, 'tier': tier_key})
 
     # نسخة قديمة للتوافق مع PDF
@@ -1985,8 +2383,9 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
     needs_verification.append("أسعار الإيجارات الفعلية في الموقع")
     needs_verification.append("التركيبة العمرية والدخلية لسكان الحي")
     needs_verification.append("المشاريع التطويرية المستقبلية في المنطقة")
-
-    return {
+    
+    # 🔴 بناء النتائج المرجعية للـ SWOT أولاً
+    result_dict = {
         'investment_score': score,
         'decision': decision, 'decision_emoji': decision_emoji,
         'decision_color': decision_color, 'decision_bg': decision_bg,
@@ -2009,9 +2408,19 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
         'local_density': local_density,
         'area_character': area_character,
         'urban_multiplier': urban_multiplier,
+        'data_is_truncated': data_is_truncated,
+        'truncation_severity': truncation_severity,
+        'categories_at_limit': categories_at_limit,
         'needs_verification': needs_verification,
         'contradiction_block': contradiction_block,
     }
+    
+    # 🔴 بناء SWOT حقيقي بعد كل الحسابات
+    result_dict['swot'] = build_swot_analysis(
+        result_dict, pbc, local_population_estimate, area_character, traffic_score, acc_score
+    )
+    
+    return result_dict
 
 
 # ============================================================================
@@ -2199,6 +2608,75 @@ def get_estimated_rent(area_sqm, area_character, traffic_score):
     else:
         rent_per_sqm = rent_data['low']
     return int(rent_per_sqm * area_sqm)
+
+
+# 🔴 إنفاق سنوي تقديري للفرد على كل نشاط (ر.س/سنة)
+# مبني على متوسطات السوق السعودي
+ANNUAL_SPEND_PER_CAPITA = {
+    'cafe': 600,           # 50 ر.س/شهر × 12
+    'restaurant': 1800,    # وجبات خارجية
+    'fast_food': 1200,
+    'grocery': 8000,       # احتياجات يومية
+    'pharmacy': 1500,
+    'fuel': 4500,
+    'shopping': 3000,
+    'clothing_store': 2400,
+    'electronics_store': 1800,
+    'auto_repair': 1500,
+    'car_wash': 360,
+    'beauty_salon': 1200,
+    'fitness_center': 1500,
+    'clinic': 800,
+    'hospital': 1200,
+    'hotel': 2000,
+    'services': 800,
+    'car_rental': 500,
+    'ev_charging_station': 600,
+}
+
+
+def calculate_market_size(target_cat, local_population, competitors_count):
+    """
+    يحسب حجم السوق المالي السنوي والحصة المتوقعة
+    معادلة Market Size: السكان × متوسط الإنفاق السنوي
+    معادلة الحصة: حجم السوق / (المنافسين + 1)
+    """
+    if not target_cat or not local_population or local_population <= 0:
+        return None
+    
+    spend_per_capita = ANNUAL_SPEND_PER_CAPITA.get(target_cat, 600)
+    
+    # حجم السوق السنوي الإجمالي
+    total_market_size = local_population * spend_per_capita
+    
+    # عدد المتنافسين (بما فيهم أنت)
+    n_players = competitors_count + 1
+    
+    # الحصة المتوقعة (متوسط، بافتراض توزيع عادل)
+    expected_share = total_market_size / n_players
+    
+    # الحصة الواقعية (الواقع: المنافسون الأقدم يأخذون أكثر)
+    # العميل الجديد عادة يحصل على 60-80% من المتوسط في السنة الأولى
+    realistic_share_y1 = int(expected_share * 0.7)
+    realistic_share_y2 = int(expected_share * 0.85)
+    realistic_share_y3 = int(expected_share * 0.95)
+    
+    # متوسط فاتورة وعدد عملاء يومي مشتق
+    daily_revenue_y1 = realistic_share_y1 / 365
+    
+    return {
+        'total_market_annual': total_market_size,
+        'spend_per_capita': spend_per_capita,
+        'competitors_count': competitors_count,
+        'players_total': n_players,
+        'expected_share_annual': int(expected_share),
+        'realistic_share_y1': realistic_share_y1,
+        'realistic_share_y2': realistic_share_y2,
+        'realistic_share_y3': realistic_share_y3,
+        'realistic_monthly_y1': int(realistic_share_y1 / 12),
+        'realistic_monthly_y3': int(realistic_share_y3 / 12),
+        'daily_revenue_y1': int(daily_revenue_y1),
+    }
 
 
 def financial_analysis(rent_yearly, setup_cost, area_sqm, employees, avg_ticket, daily_customers,
@@ -2525,7 +3003,7 @@ def analyze_field_report(report_text, analysis, pbc, lat, lng):
 
 
 def ai_enhance(analysis, pbc, lat, lng):
-    """تحسين التحليل بـ Gemini AI - prompt صارم يستخدم بيانات محددة"""
+    """تحسين التحليل بـ Gemini AI - تحليل SWOT منظم بالأرقام"""
     if not AI_AVAILABLE:
         return analysis
     try:
@@ -2536,12 +3014,16 @@ def ai_enhance(analysis, pbc, lat, lng):
             gi = analysis['gov_info']
             gov_text = f"\n- المحافظة: {gi['name']} (سكان: {gi['data']['pop']:,})"
         
-        # نضيف بيانات السكان المحليين والنوع
         local_text = ""
         if analysis.get('local_population'):
             local_text = f"\n- السكان المحليون المقدّرون: {analysis['local_population']:,} ({analysis.get('area_character', '-')})"
         
-        # أسماء منافسين فعليين (لو في target_cat)
+        # تحذير البيانات المقصوصة
+        truncation_warn = ""
+        if analysis.get('data_is_truncated'):
+            truncation_warn = f"\n⚠️ تنبيه مهم: {analysis.get('categories_at_limit', 0)} فئات وصلت لحد API الأقصى (25 محل) - المنطقة مكتظة جداً والأرقام الحقيقية أكبر."
+        
+        # أسماء منافسين فعليين
         competitor_names = ""
         target = analysis.get('target_cat')
         if target and target in pbc:
@@ -2549,7 +3031,7 @@ def ai_enhance(analysis, pbc, lat, lng):
             names = [p.get('name', '?') for p in top5]
             competitor_names = f"\n- أسماء أبرز المنافسين المباشرين ({CATEGORIES[target]['name']}): {' | '.join(names)}"
         
-        # كيمياء العائلة (إن وجدت)
+        # كيمياء العائلة + الفرص
         chem_text = ""
         if analysis.get('best_activities'):
             top_act = analysis['best_activities'][0]
@@ -2557,23 +3039,33 @@ def ai_enhance(analysis, pbc, lat, lng):
                 top_syn = top_act['synergies'][0]
                 chem_text = f"\n- أقوى ترابط: {top_act['icon']} {top_act['cat_name']} ينسجم مع {top_syn['icon']} {top_syn['name']} ({top_syn['count']} محل)"
         
-        prompt = f"""أنت خبير تحليل مواقع تجارية في السعودية. حلّل بعمق وأعطي توصية محددة.
+        # ════════════════════════════════════════════════════════════
+        # 🚨 prompt جديد - تحليل SWOT منظم بالأرقام
+        # ════════════════════════════════════════════════════════════
+        prompt = f"""أنت محلل استثمار تجاري في السعودية. أنشئ تحليل SWOT دقيق ومرتبط بالأرقام.
 
 📍 الموقع: ({lat:.4f}, {lng:.4f}){gov_text}{local_text}
 🏪 المحلات: {summary}
 📊 المؤشرات: الفرصة {analysis['opportunity_score']}% | الإشباع {analysis['saturation_score']}% | الطلب {analysis['demand_score']}%
-🎯 القرار الحالي: {analysis['decision']} ({analysis['investment_score']}/100){competitor_names}{chem_text}
+🎯 القرار الحالي: {analysis['decision']} ({analysis['investment_score']}/100){competitor_names}{chem_text}{truncation_warn}
 
-🚨 قواعد صارمة - يجب الالتزام بها:
-1. استخدم أرقاماً محددة في توصيتك (مثل "22 منافس" وليس "كثير")
-2. اذكر اسم منافس واحد على الأقل لو متوفر
-3. لا تكرر معلومات معروضة بالفعل - أضف رؤى جديدة
-4. توصيتك يجب أن تكون **عملية ومحددة** لهذا الموقع، ليست عامة
-5. لو الإشباع >85%، حذّر صراحة من الدخول بنفس النشاط
-6. لو الفرصة <40%، اقترح بدائل متخصصة
+🚨 قواعد صارمة:
+1. كل نقطة في SWOT يجب أن تبدأ برقم محدد أو اسم منافس
+2. لا تستخدم كلام عام مثل "الموقع جيد" أو "فرصة كبيرة"
+3. كل نقطة جملة واحدة قصيرة (≤15 كلمة)
+4. ربط مباشر بالأرقام المعروضة أعلاه
+5. لو البيانات مقصوصة، اذكر في "التهديدات" أن السوق أكبر مما يظهر
 
-أعد JSON فقط بالشكل التالي:
-{{"ai_recommendation":"توصية احترافية في 3-4 جمل تستخدم الأرقام والأسماء المذكورة أعلاه"}}"""
+أعد JSON فقط:
+{{
+  "ai_recommendation": "ملخص الحالة في جملتين قصيرتين بالأرقام",
+  "swot": {{
+    "strengths": ["نقطة 1 برقم محدد", "نقطة 2 برقم محدد", "نقطة 3 برقم محدد"],
+    "weaknesses": ["نقطة 1 برقم", "نقطة 2 برقم", "نقطة 3 برقم"],
+    "opportunities": ["فرصة 1 محددة", "فرصة 2 محددة", "فرصة 3 محددة"],
+    "threats": ["تهديد 1 برقم", "تهديد 2 برقم", "تهديد 3 برقم"]
+  }}
+}}"""
         text = model.generate_content(prompt).text.strip()
         if '```json' in text:
             text = text.split('```json')[1].split('```')[0]
@@ -2581,6 +3073,7 @@ def ai_enhance(analysis, pbc, lat, lng):
             text = text.split('```')[1].split('```')[0]
         d = json.loads(text.strip())
         analysis['ai_recommendation'] = d.get('ai_recommendation', '')
+        analysis['swot'] = d.get('swot', {})
         analysis['ai_enhanced'] = True
     except Exception:
         analysis['ai_enhanced'] = False
@@ -2678,6 +3171,26 @@ def build_report_html(a, pbc, lat, lng, radius):
 
     # القرار النهائي
     conf = a.get('confidence', {})
+    
+    # تحذير البيانات المقصوصة (PDF)
+    truncation_banner_pdf = ""
+    if a.get('data_is_truncated'):
+        sev_pdf = a.get('truncation_severity', 'moderate')
+        n_lim = a.get('categories_at_limit', 0)
+        if sev_pdf == "severe":
+            truncation_banner_pdf = f"""<div style="background:#fef2f2; border:2px solid #ef4444; border-radius:10px; padding:14px; margin:14px 0;">
+<div style="color:#991b1b; font-size:14px; font-weight:700; margin-bottom:6px;">🚨 منطقة مكتظة - البيانات مقصوصة</div>
+<div style="color:#7f1d1d; font-size:12px;">
+{n_lim} فئات وصلت لحد API الأقصى (25 محل). الواقع: المنطقة بها أعداد أكبر بكثير.
+الأرقام المعروضة <b>أقل من الواقع</b>. ينصح بنطاق أصغر للدقة.
+</div>
+</div>"""
+        else:
+            truncation_banner_pdf = f"""<div style="background:#fffbeb; border:1px solid #f59e0b; border-radius:10px; padding:12px; margin:14px 0;">
+<div style="color:#92400e; font-size:13px; font-weight:600;">⚠️ {n_lim} فئات قد تكون مقصوصة</div>
+<div style="color:#78350f; font-size:11px; margin-top:4px;">الأرقام قد تكون أقل من الواقع. جرّب نطاق أصغر.</div>
+</div>"""
+    
     decision_section = f"""
     <div class="section verdict" style="border-color: {a['decision_color']}; background: {a['decision_bg']};">
         <div class="verdict-label">🎯 القرار النهائي</div>
@@ -2687,7 +3200,47 @@ def build_report_html(a, pbc, lat, lng, radius):
         </div>
         <p class="verdict-text">{a.get('ai_recommendation') if a.get('ai_enhanced') else a['decision_summary']}</p>
     </div>
+    {truncation_banner_pdf}
     """
+    
+    # SWOT في PDF
+    swot_section_pdf = ""
+    if a.get('swot') and isinstance(a['swot'], dict):
+        swot_d = a['swot']
+        def _build_swot_list(items, color):
+            if not items:
+                return '<li style="color:#9ca3af; font-size:12px;">لا يوجد</li>'
+            return "".join(f'<li style="padding:4px 0; color:#374151; font-size:13px;">{itm}</li>' for itm in items)
+        
+        s_items = _build_swot_list(swot_d.get('strengths', []), '#10b981')
+        w_items = _build_swot_list(swot_d.get('weaknesses', []), '#f59e0b')
+        o_items = _build_swot_list(swot_d.get('opportunities', []), '#3b82f6')
+        t_items = _build_swot_list(swot_d.get('threats', []), '#ef4444')
+        
+        swot_section_pdf = f"""<div class="section page-break"><h3>📊 تحليل SWOT الاستثماري</h3>
+        <table style="width:100%; border-collapse:separate; border-spacing:8px;">
+        <tr>
+            <td style="vertical-align:top; background:#ecfdf5; border:1px solid #10b981; border-right:4px solid #10b981; border-radius:8px; padding:12px; width:50%;">
+                <div style="color:#047857; font-weight:700; margin-bottom:6px;">💪 نقاط القوة</div>
+                <ul style="list-style:none; padding:0; margin:0;">{s_items}</ul>
+            </td>
+            <td style="vertical-align:top; background:#fffbeb; border:1px solid #f59e0b; border-right:4px solid #f59e0b; border-radius:8px; padding:12px; width:50%;">
+                <div style="color:#92400e; font-weight:700; margin-bottom:6px;">⚠️ نقاط الضعف</div>
+                <ul style="list-style:none; padding:0; margin:0;">{w_items}</ul>
+            </td>
+        </tr>
+        <tr>
+            <td style="vertical-align:top; background:#eff6ff; border:1px solid #3b82f6; border-right:4px solid #3b82f6; border-radius:8px; padding:12px;">
+                <div style="color:#1e40af; font-weight:700; margin-bottom:6px;">🌟 الفرص</div>
+                <ul style="list-style:none; padding:0; margin:0;">{o_items}</ul>
+            </td>
+            <td style="vertical-align:top; background:#fef2f2; border:1px solid #ef4444; border-right:4px solid #ef4444; border-radius:8px; padding:12px;">
+                <div style="color:#991b1b; font-weight:700; margin-bottom:6px;">🚨 التهديدات</div>
+                <ul style="list-style:none; padding:0; margin:0;">{t_items}</ul>
+            </td>
+        </tr>
+        </table>
+        </div>"""
 
     # تحذير الإشباع + بدائل التخصص للنشاط المختار
     saturation_warning_pdf = ""
@@ -2843,16 +3396,39 @@ def build_report_html(a, pbc, lat, lng, radius):
     </div>
     """
 
-    # نقاط القوة والانتباه
-    strengths_html = "".join(f"<li>✓ {s}</li>" for s in a['strengths'])
-    cautions_html = "".join(f"<li>⚠ {c}</li>" for c in a['cautions'])
+    # 🔴 تحليل SWOT حقيقي (PDF)
+    swot = a.get('swot', {})
+    strengths_html = "".join(f"<li>✓ {s}</li>" for s in swot.get('strengths', a.get('strengths', [])))
+    weaknesses_html = "".join(f"<li>⚠ {w}</li>" for w in swot.get('weaknesses', a.get('cautions', [])))
+    opportunities_html = "".join(f"<li>💎 {o}</li>" for o in swot.get('opportunities', []))
+    threats_html = "".join(f"<li>🚨 {t}</li>" for t in swot.get('threats', []))
+    
     points_section = f"""
-    <div class="section">
-        <h3>⚖️ نقاط القوة والانتباه</h3>
-        <div class="two-col">
-            <div class="col"><h4 style="color:#10b981;">✅ نقاط القوة</h4><ul class="point-list good">{strengths_html}</ul></div>
-            <div class="col"><h4 style="color:#f59e0b;">⚠️ نقاط الانتباه</h4><ul class="point-list warn">{cautions_html}</ul></div>
-        </div>
+    <div class="section page-break">
+        <h3>⚖️ تحليل SWOT - دراسة شاملة للموقع</h3>
+        <p style="color:#6b7280; font-size:13px; margin-bottom:14px;">تحليل مبني على الأرقام الفعلية - يساعدك في اتخاذ القرار</p>
+        <table style="width:100%; border-collapse:separate; border-spacing:8px;">
+            <tr>
+                <td style="background:#ecfdf5; border:1px solid #10b981; border-right:4px solid #10b981; border-radius:10px; padding:12px; vertical-align:top; width:50%;">
+                    <h4 style="color:#047857; margin:0 0 8px 0;">✅ نقاط القوة (Strengths)</h4>
+                    <ul style="margin:0; padding-right:18px; color:#374151; font-size:13px; line-height:1.7;">{strengths_html}</ul>
+                </td>
+                <td style="background:#fffbeb; border:1px solid #f59e0b; border-right:4px solid #f59e0b; border-radius:10px; padding:12px; vertical-align:top; width:50%;">
+                    <h4 style="color:#92400e; margin:0 0 8px 0;">⚠️ نقاط الضعف (Weaknesses)</h4>
+                    <ul style="margin:0; padding-right:18px; color:#374151; font-size:13px; line-height:1.7;">{weaknesses_html}</ul>
+                </td>
+            </tr>
+            <tr>
+                <td style="background:#eff6ff; border:1px solid #3b82f6; border-right:4px solid #3b82f6; border-radius:10px; padding:12px; vertical-align:top;">
+                    <h4 style="color:#1e40af; margin:0 0 8px 0;">💎 الفرص (Opportunities)</h4>
+                    <ul style="margin:0; padding-right:18px; color:#374151; font-size:13px; line-height:1.7;">{opportunities_html}</ul>
+                </td>
+                <td style="background:#fef2f2; border:1px solid #ef4444; border-right:4px solid #ef4444; border-radius:10px; padding:12px; vertical-align:top;">
+                    <h4 style="color:#991b1b; margin:0 0 8px 0;">🚨 التهديدات (Threats)</h4>
+                    <ul style="margin:0; padding-right:18px; color:#374151; font-size:13px; line-height:1.7;">{threats_html}</ul>
+                </td>
+            </tr>
+        </table>
     </div>
     """
 
@@ -2988,16 +3564,35 @@ def build_report_html(a, pbc, lat, lng, radius):
         </div>
         """
 
-    # الأنشطة في المنطقة
+    # الأنشطة في المنطقة - مع علامة اقتطاع البيانات
     activities_section = ""
     if pbc:
+        trunc_flags = a.get('truncation_flags', {})
+        truncated_count = sum(1 for f in trunc_flags.values() if f)
         rows = ""
         for cat_key, places in sorted(pbc.items(), key=lambda x: -len(x[1])):
             cat = CATEGORIES[cat_key]
-            rows += f"<tr><td>{cat['icon']} {cat['name']}</td><td>{len(places)} محل</td></tr>"
+            is_trunc = trunc_flags.get(cat_key, False)
+            count_str = f"{len(places)}+ محل" if is_trunc else f"{len(places)} محل"
+            count_style = ' style="color:#dc2626; font-weight:700;"' if is_trunc else ''
+            rows += f"<tr><td>{cat['icon']} {cat['name']}</td><td{count_style}>{count_str}</td></tr>"
+        
+        truncation_warning = ""
+        if truncated_count >= 3:
+            truncation_warning = f"""
+            <div style="background:#fef2f2; border:1px solid #ef4444; border-radius:8px; padding:10px; margin-bottom:10px;">
+                <div style="color:#991b1b; font-size:13px; font-weight:700;">⚠️ بيانات API محدودة</div>
+                <div style="color:#7f1d1d; font-size:12px; margin-top:4px;">
+                    {truncated_count} فئة وصلت لحد API (25 محل) - الأعداد الفعلية قد تكون أعلى بكثير.
+                    العلامة "+" تشير لاحتمال اقتطاع البيانات.
+                </div>
+            </div>
+            """
+        
         activities_section = f"""
         <div class="section">
-            <h3>🏪 الأنشطة في المنطقة (إجمالي {a['total_places']} محل)</h3>
+            <h3>🏪 الأنشطة في المنطقة (إجمالي {a['total_places']}{'+' if truncated_count >= 3 else ''} محل)</h3>
+            {truncation_warning}
             <table class="comp-table">
                 <thead><tr><th>الفئة</th><th>العدد</th></tr></thead>
                 <tbody>{rows}</tbody>
@@ -3028,6 +3623,10 @@ def build_report_html(a, pbc, lat, lng, radius):
                     icon_s, label = ("❌", "مفقود") if tier_key != 'lifestyle' else ("🎯", "فرصة!")
                     color = "#ef4444" if tier_key in ('critical', 'essential') else "#10b981"
                     detail = "ضروري" if tier_key == 'critical' else ("يومي" if tier_key == 'essential' else "فرصة جديدة")
+                elif s['status'] == 'likely_absent':
+                    icon_s, label, color, detail = "⚪", "غير مكتشف", "#6b7280", "قد يدل على غياب طلب"
+                elif s['status'] == 'truncated_likely_saturated':
+                    icon_s, label, color, detail = "🔴", f"{s['count']}+ (مشبع)", "#dc2626", "السوق ممتلئ"
                 elif s['status'] == 'oversaturated':
                     icon_s, label, color, detail = "🚫", f"{s['count']} (مشبع)", "#dc2626", f"{s['cp_per_1k']:.1f}/1000"
                 elif s['status'] == 'high_competition':
@@ -3254,6 +3853,7 @@ def build_report_html(a, pbc, lat, lng, radius):
     {honesty}
     {decision_section}
     {saturation_warning_pdf}
+    {swot_section_pdf}
     {gov_section}
     {best_act_highlight}
     {custom_act_section}
@@ -3670,13 +4270,16 @@ if analyze_btn:
     gov_info = find_governorate_by_coords(lat, lng)
 
     # المسح الشامل
-    status.markdown('<p class="progress-msg">🌐 25% - مسح المحلات (33 فئة)...</p>', unsafe_allow_html=True)
+    status.markdown('<p class="progress-msg">🌐 25% - مسح المحلات (33 فئة × 5 نقاط)...</p>', unsafe_allow_html=True)
     progress.progress(25)
-    pbc = comprehensive_scan(lat, lng, radius)
+    pbc, truncation_flags = comprehensive_scan(lat, lng, radius)
     if not pbc:
         progress.empty(); status.empty()
         st.warning("⚠️ لم نعثر على محلات في النطاق المحدد. جرّب نطاقاً أوسع.")
         st.stop()
+    
+    # نخزن truncation_flags في session للاستخدام لاحقاً
+    st.session_state.truncation_flags = truncation_flags
 
     status.markdown('<p class="progress-msg">📊 55% - تحليل البيانات...</p>', unsafe_allow_html=True)
     progress.progress(55)
@@ -3693,10 +4296,12 @@ if analyze_btn:
 
     a = analyze(pbc, radius, target_cat=st.session_state.target_activity, gov_info=gov_info, field_data=fi)
     a['dna'] = neighborhood_dna(pbc)
+    # 🔴 إضافة truncation_flags للوصول لها في العرض والـ PDF
+    a['truncation_flags'] = truncation_flags
 
     status.markdown('<p class="progress-msg">🎯 65% - تصنيف الأنشطة...</p>', unsafe_allow_html=True)
     progress.progress(65)
-    best, worst = rank_all_activities(pbc, a['dna'], a['traffic_score'], a['pop_score'], a['accessibility_score'], field_data=fi, local_population=a.get('local_population'))
+    best, worst = rank_all_activities(pbc, a['dna'], a['traffic_score'], a['pop_score'], a['accessibility_score'], field_data=fi, local_population=a.get('local_population'), truncation_flags=truncation_flags)
     a['best_activities'] = best
     a['worst_activities'] = worst
 
@@ -3828,6 +4433,29 @@ else:
     # ═══════════════════════════════════════════════════════
     # 🎯 القرار النهائي
     # ═══════════════════════════════════════════════════════
+    # تحذير: البيانات مقصوصة
+    if a.get('data_is_truncated'):
+        sev = a.get('truncation_severity', 'moderate')
+        n_at_limit = a.get('categories_at_limit', 0)
+        if sev == "severe":
+            st.markdown(f"""<div style="background:rgba(239,68,68,0.12); border:2px solid #ef4444; border-radius:14px; padding:16px; margin-bottom:14px;">
+<div style="color:#fca5a5; font-size:15px; font-weight:700; margin-bottom:8px;">🚨 منطقة مكتظة جداً - البيانات مقصوصة!</div>
+<div style="color:#cbd5e1; font-size:13px; line-height:1.7;">
+{n_at_limit} فئات وصلت لحد Mapbox الأقصى (25 محل/فئة). الواقع: <b>المنطقة بها مئات المحلات حقيقياً</b>.<br>
+<b>⚠️ تأثير على التحليل:</b><br>
+• الإشباع المعروض أقل من الواقع<br>
+• "فرصة!" قد تعني <b>غياب طلب</b> (في المناطق المكتظة)<br>
+• ينصح بـ <b>نطاق أصغر</b> (1-2 كم) لدقة أفضل
+</div>
+</div>""", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""<div style="background:rgba(245,158,11,0.10); border:1px solid #f59e0b; border-radius:12px; padding:14px; margin-bottom:14px;">
+<div style="color:#fbbf24; font-size:14px; font-weight:600;">⚠️ تنبيه: {n_at_limit} فئات قد تكون مقصوصة (حد API)</div>
+<div style="color:#cbd5e1; font-size:13px; margin-top:6px;">
+الأرقام قد تكون أقل من الواقع الفعلي. للدقة الأعلى، جرّب نطاق أصغر.
+</div>
+</div>""", unsafe_allow_html=True)
+    
     decision_text = a.get('ai_recommendation') if a.get('ai_enhanced') else a['decision_summary']
     target_cat_name = ""
     if a.get('target_cat'):
@@ -3857,6 +4485,45 @@ else:
         decision_card += f'<div class="verdict-tag">🏛️ {a["gov_info"]["name"]}</div>'
     decision_card += "</div></div>"
     st.markdown(decision_card, unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
+    # 📊 تحليل SWOT - مصفوفة قرار بالأرقام (من AI)
+    # ═══════════════════════════════════════════════════════
+    if a.get('swot') and isinstance(a['swot'], dict):
+        swot = a['swot']
+        st.markdown('<div class="section-title">📊 تحليل SWOT الاستثماري</div>', unsafe_allow_html=True)
+        st.caption("تحليل منظّم بالأرقام - الأساس لقرار استثماري سليم")
+        
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            # نقاط القوة
+            strengths_items = "".join(f'<li style="padding:6px 0; color:#cbd5e1; font-size:13px;">✓ {s}</li>' for s in swot.get('strengths', []))
+            st.markdown(f"""<div style="background:rgba(16,185,129,0.10); border:1px solid #10b981; border-right:4px solid #10b981; border-radius:12px; padding:16px; margin-bottom:14px;">
+<div style="color:#86efac; font-size:14px; font-weight:700; margin-bottom:10px;">💪 نقاط القوة (Strengths)</div>
+<ul style="list-style:none; padding:0; margin:0;">{strengths_items or '<li style="color:#94a3b8; font-size:12px;">لا يوجد</li>'}</ul>
+</div>""", unsafe_allow_html=True)
+            
+            # الفرص
+            opps_items = "".join(f'<li style="padding:6px 0; color:#cbd5e1; font-size:13px;">🎯 {o}</li>' for o in swot.get('opportunities', []))
+            st.markdown(f"""<div style="background:rgba(59,130,246,0.10); border:1px solid #3b82f6; border-right:4px solid #3b82f6; border-radius:12px; padding:16px;">
+<div style="color:#93c5fd; font-size:14px; font-weight:700; margin-bottom:10px;">🌟 الفرص (Opportunities)</div>
+<ul style="list-style:none; padding:0; margin:0;">{opps_items or '<li style="color:#94a3b8; font-size:12px;">لا يوجد</li>'}</ul>
+</div>""", unsafe_allow_html=True)
+        
+        with sc2:
+            # نقاط الضعف
+            weaks_items = "".join(f'<li style="padding:6px 0; color:#cbd5e1; font-size:13px;">⚠️ {w}</li>' for w in swot.get('weaknesses', []))
+            st.markdown(f"""<div style="background:rgba(245,158,11,0.10); border:1px solid #f59e0b; border-right:4px solid #f59e0b; border-radius:12px; padding:16px; margin-bottom:14px;">
+<div style="color:#fbbf24; font-size:14px; font-weight:700; margin-bottom:10px;">⚠️ نقاط الضعف (Weaknesses)</div>
+<ul style="list-style:none; padding:0; margin:0;">{weaks_items or '<li style="color:#94a3b8; font-size:12px;">لا يوجد</li>'}</ul>
+</div>""", unsafe_allow_html=True)
+            
+            # التهديدات
+            threats_items = "".join(f'<li style="padding:6px 0; color:#cbd5e1; font-size:13px;">🚨 {t}</li>' for t in swot.get('threats', []))
+            st.markdown(f"""<div style="background:rgba(239,68,68,0.10); border:1px solid #ef4444; border-right:4px solid #ef4444; border-radius:12px; padding:16px;">
+<div style="color:#fca5a5; font-size:14px; font-weight:700; margin-bottom:10px;">🚨 التهديدات (Threats)</div>
+<ul style="list-style:none; padding:0; margin:0;">{threats_items or '<li style="color:#94a3b8; font-size:12px;">لا يوجد</li>'}</ul>
+</div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
     # ⚠️ تحذير: نطاق فارغ أو محدود
@@ -3914,6 +4581,16 @@ else:
                     label = "مفقود" if tier_key != 'lifestyle' else "🎯 فرصة!"
                     color = "#ef4444" if tier_key in ('critical', 'essential') else "#10b981"
                     detail = "ضروري" if tier_key == 'critical' else ("يومي" if tier_key == 'essential' else "فرصة جديدة")
+                elif s['status'] == 'likely_absent':
+                    icon_status = "⚪"
+                    label = "غير مكتشف"
+                    color = "#6b7280"
+                    detail = "قد يدل على غياب طلب"
+                elif s['status'] == 'truncated_likely_saturated':
+                    icon_status = "🔴"
+                    label = f"{s['count']}+ موجود (مشبع)"
+                    color = "#dc2626"
+                    detail = "السوق ممتلئ (بيانات مقصوصة)"
                 elif s['status'] == 'oversaturated':
                     icon_status = "🚫"
                     label = f"{s['count']} موجود (مشبع)"
@@ -3980,9 +4657,76 @@ else:
 </div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
-    # 🚫 تحذير شديد لو النشاط المختار مشبع + بدائل التخصص
+    # 💰 تحليل حجم السوق المالي - يظهر مع نشاط محدد
     # ═══════════════════════════════════════════════════════
     target_cat_str = a.get('target_cat')
+    if target_cat_str and a.get('local_population') and a['local_population'] > 0:
+        comp_count = len(pbc.get(target_cat_str, []))
+        market = calculate_market_size(target_cat_str, a['local_population'], comp_count)
+        if market:
+            cat_info = CATEGORIES.get(target_cat_str, {})
+            st.markdown('<div class="section-title">💰 تحليل حجم السوق المالي</div>', unsafe_allow_html=True)
+            st.caption("تقدير حجم السوق المتاح وحصتك المتوقعة بناءً على السكان والمنافسة")
+            
+            # 4 بطاقات: حجم السوق | عدد المتنافسين | حصتك المتوقعة (سنة 1) | متوسط شهري
+            mc1, mc2 = st.columns(2)
+            
+            with mc1:
+                st.markdown(f"""<div style="background:rgba(59,130,246,0.10); border:1px solid #3b82f6; border-right:4px solid #3b82f6; padding:16px; border-radius:12px; margin-bottom:10px;">
+<div style="color:#93c5fd; font-size:13px; font-weight:600; margin-bottom:4px;">📊 حجم السوق السنوي الإجمالي</div>
+<div style="color:white; font-size:22px; font-weight:800;">{market['total_market_annual']:,.0f} <span style="font-size:14px; color:#94a3b8;">ر.س/سنة</span></div>
+<div style="color:#94a3b8; font-size:12px; margin-top:6px;">
+{a['local_population']:,} نسمة × {market['spend_per_capita']:,} ر.س/سنة إنفاق على {cat_info.get('name', target_cat_str)}
+</div>
+</div>""", unsafe_allow_html=True)
+            
+            with mc2:
+                st.markdown(f"""<div style="background:rgba(168,85,247,0.10); border:1px solid #a855f7; border-right:4px solid #a855f7; padding:16px; border-radius:12px; margin-bottom:10px;">
+<div style="color:#c4b5fd; font-size:13px; font-weight:600; margin-bottom:4px;">⚔️ السوق مقسّم على</div>
+<div style="color:white; font-size:22px; font-weight:800;">{market['players_total']} <span style="font-size:14px; color:#94a3b8;">منافس (بما فيك)</span></div>
+<div style="color:#94a3b8; font-size:12px; margin-top:6px;">
+{comp_count} منافس موجود + أنت = {market['players_total']} متنافسين
+</div>
+</div>""", unsafe_allow_html=True)
+            
+            # حصص متوقعة 3 سنوات
+            mc3, mc4, mc5 = st.columns(3)
+            
+            with mc3:
+                st.markdown(f"""<div style="background:rgba(245,158,11,0.10); border:1px solid #f59e0b; padding:14px; border-radius:12px; text-align:center;">
+<div style="color:#fcd34d; font-size:12px; font-weight:600; margin-bottom:4px;">السنة الأولى</div>
+<div style="color:white; font-size:18px; font-weight:800;">{market['realistic_share_y1']:,}</div>
+<div style="color:#94a3b8; font-size:11px;">ر.س/سنة (70%)</div>
+<div style="color:#fcd34d; font-size:11px; margin-top:4px;">~{market['realistic_monthly_y1']:,}/شهر</div>
+</div>""", unsafe_allow_html=True)
+            
+            with mc4:
+                st.markdown(f"""<div style="background:rgba(59,130,246,0.10); border:1px solid #3b82f6; padding:14px; border-radius:12px; text-align:center;">
+<div style="color:#93c5fd; font-size:12px; font-weight:600; margin-bottom:4px;">السنة الثانية</div>
+<div style="color:white; font-size:18px; font-weight:800;">{market['realistic_share_y2']:,}</div>
+<div style="color:#94a3b8; font-size:11px;">ر.س/سنة (85%)</div>
+<div style="color:#93c5fd; font-size:11px; margin-top:4px;">~{int(market['realistic_share_y2']/12):,}/شهر</div>
+</div>""", unsafe_allow_html=True)
+            
+            with mc5:
+                st.markdown(f"""<div style="background:rgba(16,185,129,0.10); border:1px solid #10b981; padding:14px; border-radius:12px; text-align:center;">
+<div style="color:#86efac; font-size:12px; font-weight:600; margin-bottom:4px;">السنة الثالثة</div>
+<div style="color:white; font-size:18px; font-weight:800;">{market['realistic_share_y3']:,}</div>
+<div style="color:#94a3b8; font-size:11px;">ر.س/سنة (95%)</div>
+<div style="color:#86efac; font-size:11px; margin-top:4px;">~{market['realistic_monthly_y3']:,}/شهر</div>
+</div>""", unsafe_allow_html=True)
+            
+            # ملاحظات
+            st.markdown(f"""<div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:12px; border-radius:10px; margin-top:12px; color:#94a3b8; font-size:12px; line-height:1.7;">
+💡 <b>كيف يُحسب؟</b><br>
+• <b>حجم السوق</b> = السكان المحليون × متوسط الإنفاق السنوي للفرد على هذا النشاط<br>
+• <b>حصتك</b> = حجم السوق ÷ (المنافسين + 1) × معامل النضوج (70% سنة 1، 85% سنة 2، 95% سنة 3)<br>
+• الأرقام <b>تقديرية</b> - النجاح يعتمد على الموقع والتميّز والتسويق
+</div>""", unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
+    # 🚫 تحذير شديد لو النشاط المختار مشبع + بدائل التخصص
+    # ═══════════════════════════════════════════════════════
     if target_cat_str and a.get('local_population') and a['local_population'] > 0:
         comp_count = len(pbc.get(target_cat_str, []))
         if comp_count > 0:
@@ -4296,22 +5040,48 @@ else:
             st.info("لا توجد أنشطة بفرصة منخفضة جداً - كل الأنشطة لها إمكانات")
 
     # ═══════════════════════════════════════════════════════
-    # ⚖️ نقاط القوة والانتباه
+    # ⚖️ تحليل SWOT - نقاط القوة والضعف والفرص والتهديدات
     # ═══════════════════════════════════════════════════════
-    st.markdown('<div class="section-title">⚖️ نقاط القوة والانتباه</div>', unsafe_allow_html=True)
-    sp1, sp2 = st.columns(2)
-    with sp1:
-        strengths_html = "".join(f'<div style="color:#10b981; padding:6px 0; font-size:14px;">✓ {s}</div>' for s in a['strengths'])
-        st.markdown(f"""<div class="info-card">
-            <div class="info-card-title">✅ نقاط القوة</div>
-            {strengths_html}
-        </div>""", unsafe_allow_html=True)
-    with sp2:
-        cautions_html = "".join(f'<div style="color:#f59e0b; padding:6px 0; font-size:14px;">⚠ {c}</div>' for c in a['cautions'])
-        st.markdown(f"""<div class="info-card">
-            <div class="info-card-title">⚠️ نقاط الانتباه</div>
-            {cautions_html}
-        </div>""", unsafe_allow_html=True)
+    st.markdown('<div class="section-title">⚖️ تحليل SWOT - دراسة شاملة للموقع</div>', unsafe_allow_html=True)
+    st.caption("تحليل مبني على الأرقام الفعلية للموقع - يساعدك في اتخاذ القرار")
+    
+    swot = a.get('swot', {})
+    
+    # عرض في 2×2 grid
+    swot_row1_col1, swot_row1_col2 = st.columns(2)
+    swot_row2_col1, swot_row2_col2 = st.columns(2)
+    
+    with swot_row1_col1:
+        # Strengths - أخضر
+        items_html = "".join(f'<div style="color:#cbd5e1; padding:6px 0; font-size:13px; line-height:1.6; border-bottom:1px solid rgba(255,255,255,0.05);">✓ {s}</div>' for s in swot.get('strengths', []))
+        st.markdown(f"""<div style="background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.3); border-right:4px solid #10b981; padding:14px; border-radius:12px; min-height:200px;">
+<div style="color:#86efac; font-size:14px; font-weight:700; margin-bottom:10px;">✅ نقاط القوة (Strengths)</div>
+{items_html}
+</div>""", unsafe_allow_html=True)
+    
+    with swot_row1_col2:
+        # Weaknesses - برتقالي
+        items_html = "".join(f'<div style="color:#cbd5e1; padding:6px 0; font-size:13px; line-height:1.6; border-bottom:1px solid rgba(255,255,255,0.05);">⚠ {w}</div>' for w in swot.get('weaknesses', []))
+        st.markdown(f"""<div style="background:rgba(245,158,11,0.10); border:1px solid rgba(245,158,11,0.3); border-right:4px solid #f59e0b; padding:14px; border-radius:12px; min-height:200px;">
+<div style="color:#fcd34d; font-size:14px; font-weight:700; margin-bottom:10px;">⚠️ نقاط الضعف (Weaknesses)</div>
+{items_html}
+</div>""", unsafe_allow_html=True)
+    
+    with swot_row2_col1:
+        # Opportunities - أزرق
+        items_html = "".join(f'<div style="color:#cbd5e1; padding:6px 0; font-size:13px; line-height:1.6; border-bottom:1px solid rgba(255,255,255,0.05);">💎 {o}</div>' for o in swot.get('opportunities', []))
+        st.markdown(f"""<div style="background:rgba(59,130,246,0.10); border:1px solid rgba(59,130,246,0.3); border-right:4px solid #3b82f6; padding:14px; border-radius:12px; min-height:200px;">
+<div style="color:#93c5fd; font-size:14px; font-weight:700; margin-bottom:10px;">💎 الفرص (Opportunities)</div>
+{items_html}
+</div>""", unsafe_allow_html=True)
+    
+    with swot_row2_col2:
+        # Threats - أحمر
+        items_html = "".join(f'<div style="color:#cbd5e1; padding:6px 0; font-size:13px; line-height:1.6; border-bottom:1px solid rgba(255,255,255,0.05);">🚨 {t}</div>' for t in swot.get('threats', []))
+        st.markdown(f"""<div style="background:rgba(239,68,68,0.10); border:1px solid rgba(239,68,68,0.3); border-right:4px solid #ef4444; padding:14px; border-radius:12px; min-height:200px;">
+<div style="color:#fca5a5; font-size:14px; font-weight:700; margin-bottom:10px;">🚨 التهديدات (Threats)</div>
+{items_html}
+</div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
     # 💰 التحليل المالي (لو موجود)
@@ -4510,18 +5280,34 @@ else:
         st.warning("⚠️ تعذّر عرض الخريطة")
 
     # ═══════════════════════════════════════════════════════
-    # 📊 مخطط توزيع المحلات
+    # 📊 مخطط توزيع المحلات + تحذير اقتطاع البيانات
     # ═══════════════════════════════════════════════════════
     st.markdown('<div class="section-title">📊 توزيع المحلات حسب الفئة</div>', unsafe_allow_html=True)
-    chart_data = sorted([(CATEGORIES[k]['name'], len(v), CATEGORIES[k]['color']) for k, v in pbc.items()],
+    
+    # 🔴 تحذير اقتطاع البيانات (إذا 3+ فئات وصلت لحد API)
+    trunc_flags = a.get('truncation_flags', {})
+    truncated_count = sum(1 for f in trunc_flags.values() if f)
+    if truncated_count >= 3:
+        st.markdown(f"""<div style="background:rgba(239,68,68,0.10); border:1px solid #ef4444; border-right:4px solid #ef4444; border-radius:12px; padding:14px; margin-bottom:14px;">
+<div style="color:#fca5a5; font-size:14px; font-weight:700; margin-bottom:6px;">⚠️ بيانات API محدودة - الأعداد قد تكون أعلى من المعروض</div>
+<div style="color:#cbd5e1; font-size:13px; line-height:1.7;">
+<b>{truncated_count} فئة</b> وصلت لحد Mapbox API (25 محل). الأعداد الفعلية قد تكون أعلى بكثير.<br>
+العلامة <b style="color:#dc2626;">"+"</b> بعد الرقم تشير لاحتمال اقتطاع البيانات.<br>
+💡 <b>التأثير:</b> الإشباع الفعلي قد يكون أعلى مما يظهر التحليل، فكن أكثر حذراً.
+</div>
+</div>""", unsafe_allow_html=True)
+    
+    chart_data = sorted([(CATEGORIES[k]['name'], len(v), CATEGORIES[k]['color'], trunc_flags.get(k, False)) for k, v in pbc.items()],
                         key=lambda x: -x[1])[:15]
     if chart_data:
+        # نضيف "+" للأرقام المقصوصة في النص
+        text_labels = [f"{d[1]}+" if d[3] else str(d[1]) for d in chart_data]
         fig = go.Figure(data=[go.Bar(
             x=[d[1] for d in chart_data],
             y=[d[0] for d in chart_data],
             orientation='h',
             marker=dict(color=[d[2] for d in chart_data]),
-            text=[d[1] for d in chart_data],
+            text=text_labels,
             textposition='outside',
         )])
         fig.update_layout(
