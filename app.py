@@ -1286,6 +1286,37 @@ def process(features, tlat, tlng, max_km):
     return places
 
 
+# ════════════════════════════════════════════════════════════════
+# 🔴 score_to_level: تحويل النسب المئوية لمستويات مفهومة
+# ════════════════════════════════════════════════════════════════
+def score_to_level(score, reverse=False):
+    """
+    تحول نسبة 0-100 إلى مستوى مفهوم بأيقونة ولون
+    reverse=True للمعادلات المعكوسة (تشبع، منافسة - الأعلى = أسوأ)
+    """
+    score = int(score) if score is not None else 0
+    if reverse:
+        # تشبع/منافسة - العكس: عالي = سيء
+        if score >= 85:
+            return {'level': 'ضعيف', 'icon': '🔴', 'color': '#ef4444', 'meaning': 'مشبع - تجنّب'}
+        elif score >= 60:
+            return {'level': 'متوسط', 'icon': '🟡', 'color': '#f59e0b', 'meaning': 'منافسة عالية'}
+        elif score >= 30:
+            return {'level': 'جيد', 'icon': '💎', 'color': '#3b82f6', 'meaning': 'منافسة معقولة'}
+        else:
+            return {'level': 'ممتاز', 'icon': '⭐', 'color': '#10b981', 'meaning': 'سوق مفتوح'}
+    else:
+        # فرصة/طلب/انسجام - الأعلى = أفضل
+        if score >= 75:
+            return {'level': 'ممتاز جداً', 'icon': '⭐', 'color': '#10b981', 'meaning': 'فرصة قوية'}
+        elif score >= 55:
+            return {'level': 'جيد', 'icon': '💎', 'color': '#3b82f6', 'meaning': 'فرصة معقولة'}
+        elif score >= 35:
+            return {'level': 'متوسط', 'icon': '🟡', 'color': '#f59e0b', 'meaning': 'يحتاج دراسة'}
+        else:
+            return {'level': 'ضعيف', 'icon': '🔴', 'color': '#ef4444', 'meaning': 'مخاطرة عالية'}
+
+
 def comprehensive_scan(lat, lng, radius_km):
     """
     🔴 فحص شامل محسّن:
@@ -1300,9 +1331,12 @@ def comprehensive_scan(lat, lng, radius_km):
         places = process(feats, lat, lng, radius_km)
         if places:
             results[cat] = places
-            # علم اقتطاع: لو عدد المحلات >= 24 (قريب من سقف Mapbox 25)
-            # هذا مؤشر على أن البيانات الحقيقية أكبر
-            if len(places) >= 24:
+            # 🔴 عتبة اقتطاع محدّثة:
+            # البحث المتعدد (5 نقاط × 25) ينتج تقريباً 60-120 نتيجة بعد dedup
+            # لذا الاقتطاع الفعلي يحدث عند 100+ (وصل الحد الأقصى للبحث المتعدد)
+            # عند 60-100 = البيانات شبه كاملة
+            # عند < 60 = البيانات كاملة على الأرجح
+            if len(places) >= 100:
                 truncation_flags[cat] = True
     return results, truncation_flags
 
@@ -2309,19 +2343,17 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
             # القرار: في المنطقة المكتظة، نصنّف "missing" كـ "absent" (غياب طلب)
             # في المنطقة الهادئة، يبقى "missing" (فرصة محتملة)
             # ════════════════════════════════════════════════════
-            if data_is_truncated or total >= 200:
+            if total >= 200:
                 return 'likely_absent'  # غياب طلب وليس فرصة
             return 'missing'
-        # نتحقق من الإشباع
+        # 🔴 الفحص الصحيح: نستخدم cp_per_1k فقط (وليس truncation_flag)
+        # السبب: البحث المتعدد يعطي 60-120 نتيجة فعلية، فالعدد المعروض قريب من الواقع
         if local_population_estimate and local_population_estimate > 0 and count >= 5:
             cp_1k = (count * 1000) / local_population_estimate
             if cp_1k > 3.5:
                 return 'oversaturated'
             elif cp_1k > 1.5:
                 return 'high_competition'
-        # لو الفئة وصلت حد Mapbox، نضعها كـ "truncated"
-        if count >= 23:
-            return 'truncated_likely_saturated'
         return 'present'
 
     essential_analysis = {}
@@ -3680,10 +3712,9 @@ def build_report_html(a, pbc, lat, lng, radius):
         if truncated_count >= 3:
             truncation_warning = f"""
             <div style="background:#fef2f2; border:1px solid #ef4444; border-radius:8px; padding:10px; margin-bottom:10px;">
-                <div style="color:#991b1b; font-size:13px; font-weight:700;">⚠️ بيانات API محدودة</div>
+                <div style="color:#991b1b; font-size:13px; font-weight:700;">⚠️ بيانات هذه المنطقة مكثّفة</div>
                 <div style="color:#7f1d1d; font-size:12px; margin-top:4px;">
-                    {truncated_count} فئة وصلت لحد API (25 محل) - الأعداد الفعلية قد تكون أعلى بكثير.
-                    العلامة "+" تشير لاحتمال اقتطاع البيانات.
+                    {truncated_count} فئة قد يكون الواقع فيها أكبر مما يظهر. الأعداد الفعلية قد تكون أعلى.
                 </div>
             </div>
             """
@@ -3723,7 +3754,7 @@ def build_report_html(a, pbc, lat, lng, radius):
                     color = "#ef4444" if tier_key in ('critical', 'essential') else "#10b981"
                     detail = "ضروري" if tier_key == 'critical' else ("يومي" if tier_key == 'essential' else "فرصة جديدة")
                 elif s['status'] == 'likely_absent':
-                    icon_s, label, color, detail = "⚪", "غير مكتشف", "#6b7280", "قد يدل على غياب طلب"
+                    icon_s, label, color, detail = "⚪", "غير مكتشف", "#6b7280", "غير مسجّل - يحتاج تحقق ميداني"
                 elif s['status'] == 'truncated_likely_saturated':
                     icon_s, label, color, detail = "🔴", f"{s['count']}+ (مشبع)", "#dc2626", "السوق ممتلئ"
                 elif s['status'] == 'oversaturated':
@@ -3927,7 +3958,7 @@ def build_report_html(a, pbc, lat, lng, radius):
 
     footer = """
     <div class="footer">
-        <p>📊 <b>GBI - الاستثمار الذكي v3</b> | تقرير تحليل آلي يعتمد على بيانات Mapbox و GASTAT</p>
+        <p>📊 <b>تقرير GBI الاستثماري</b></p>
         <p>⚠️ تحليل أولي - لا يغني عن دراسة جدوى مهنية وزيارة ميدانية</p>
     </div>
     """
@@ -3957,7 +3988,6 @@ def build_report_html(a, pbc, lat, lng, radius):
     {best_act_highlight}
     {custom_act_section}
     {metrics_section}
-    {points_section}
     {best_section}
     {worst_section}
     {financial_section}
@@ -3976,16 +4006,7 @@ def build_report_html(a, pbc, lat, lng, radius):
 # ============================================================================
 # [الدفعة 6] Top Bar + الواجهة
 # ============================================================================
-badges = []
-if MAPBOX:
-    badges.append('<span class="badge-connected">● Mapbox</span>')
-else:
-    badges.append('<span class="badge-disconnected">○ Mapbox مفقود</span>')
-if AI_AVAILABLE:
-    badges.append('<span class="badge-connected">● AI</span>')
-else:
-    badges.append('<span class="badge-disconnected">○ AI غير مفعّل</span>')
-api_badge = " ".join(badges)
+api_badge = ""  # تم إخفاء بادجات Mapbox/AI من الواجهة (تفاصيل تقنية)
 
 st.markdown(f"""
 <div class="top-bar">
@@ -4109,7 +4130,7 @@ with st.expander("📋 ارفع جودة الدراسة - أدخل ما تعرف
     <div style="background:rgba(168,85,247,0.08); border:1px solid rgba(168,85,247,0.3); border-radius:12px; padding:14px; margin-bottom:14px;">
         <div style="color:#c4b5fd; font-weight:600; font-size:14px; margin-bottom:6px;">💡 لماذا هذا النموذج؟</div>
         <div style="color:#94a3b8; font-size:13px; line-height:1.6;">
-            البوت يستطيع تحليل بيانات Mapbox فقط. لكن <b>أنت تعرف الموقع أكثر</b>.
+            <b>أنت تعرف الموقع أكثر</b> من أي تحليل آلي.
             كل سؤال تجيب عليه يرفع دقة التحليل من 35% إلى 70%.
             <br>كل الحقول <b>اختيارية</b> - أجب على ما تعرفه فقط.
         </div>
@@ -4507,16 +4528,16 @@ if not st.session_state.analysis:
         </p>
         <div style="margin-top:24px; display:flex; gap:14px; justify-content:center; flex-wrap:wrap;">
             <div style="background:#1f2937; padding:10px 18px; border-radius:999px; color:#cbd5e1; font-size:13px;">
-                ✓ 134 محافظة سعودية
+                ✓ تحليل 134 محافظة
             </div>
             <div style="background:#1f2937; padding:10px 18px; border-radius:999px; color:#cbd5e1; font-size:13px;">
-                ✓ 33 فئة محلات
+                ✓ 33 نوع نشاط
             </div>
             <div style="background:#1f2937; padding:10px 18px; border-radius:999px; color:#cbd5e1; font-size:13px;">
-                ✓ بيانات GASTAT 2022
+                ✓ بيانات السكان الرسمية
             </div>
             <div style="background:#1f2937; padding:10px 18px; border-radius:999px; color:#cbd5e1; font-size:13px;">
-                ✓ تحليل AI تفاعلي
+                ✓ تحليل تفاعلي
             </div>
         </div>
     </div>
@@ -4538,20 +4559,20 @@ else:
         n_at_limit = a.get('categories_at_limit', 0)
         if sev == "severe":
             st.markdown(f"""<div style="background:rgba(239,68,68,0.12); border:2px solid #ef4444; border-radius:14px; padding:16px; margin-bottom:14px;">
-<div style="color:#fca5a5; font-size:15px; font-weight:700; margin-bottom:8px;">🚨 منطقة مكتظة جداً - البيانات مقصوصة!</div>
+<div style="color:#fca5a5; font-size:15px; font-weight:700; margin-bottom:8px;">🚨 منطقة مكتظة جداً</div>
 <div style="color:#cbd5e1; font-size:13px; line-height:1.7;">
-{n_at_limit} فئات وصلت لحد Mapbox الأقصى (25 محل/فئة). الواقع: <b>المنطقة بها مئات المحلات حقيقياً</b>.<br>
-<b>⚠️ تأثير على التحليل:</b><br>
-• الإشباع المعروض أقل من الواقع<br>
-• "فرصة!" قد تعني <b>غياب طلب</b> (في المناطق المكتظة)<br>
+<b>{n_at_limit} فئة</b> تحتوي على عدد كبير جداً من المحلات. الواقع: <b>المنطقة بها مئات المحلات حقيقياً</b>.<br>
+<b>⚠️ ما يعنيه هذا لقرارك:</b><br>
+• الإشباع الفعلي أعلى مما يظهر<br>
+• "فرصة" قد تعني <b>غياب طلب</b> (وليس فرصة حقيقية)<br>
 • ينصح بـ <b>نطاق أصغر</b> (1-2 كم) لدقة أفضل
 </div>
 </div>""", unsafe_allow_html=True)
         else:
             st.markdown(f"""<div style="background:rgba(245,158,11,0.10); border:1px solid #f59e0b; border-radius:12px; padding:14px; margin-bottom:14px;">
-<div style="color:#fbbf24; font-size:14px; font-weight:600;">⚠️ تنبيه: {n_at_limit} فئات قد تكون مقصوصة (حد API)</div>
+<div style="color:#fbbf24; font-size:14px; font-weight:600;">⚠️ تنبيه: {n_at_limit} فئة قد يكون فيها محلات أكثر مما يظهر</div>
 <div style="color:#cbd5e1; font-size:13px; margin-top:6px;">
-الأرقام قد تكون أقل من الواقع الفعلي. للدقة الأعلى، جرّب نطاق أصغر.
+الأرقام قد تكون أقل من الواقع. للدقة الأعلى، جرّب نطاق أصغر.
 </div>
 </div>""", unsafe_allow_html=True)
     
@@ -4560,7 +4581,21 @@ else:
     if a.get('target_cat'):
         target_cat_name = f' • النشاط: {CATEGORIES[a["target_cat"]]["icon"]} {CATEGORIES[a["target_cat"]]["name"]}'
 
-    decision_card = f"""
+    # 🔴 بانر علوي مختصر فقط - القرار الكامل في الأسفل
+    teaser_banner = f"""<div style="background:linear-gradient(90deg, {a['decision_bg']} 0%, transparent 100%); border-right:4px solid {a['decision_color']}; padding:14px 18px; border-radius:12px; margin-bottom:18px;">
+        <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+            <div style="font-size:28px;">{a['decision_emoji']}</div>
+            <div style="flex:1;">
+                <div style="color:{a['decision_color']}; font-size:18px; font-weight:800;">{a['decision']}</div>
+                <div style="color:#94a3b8; font-size:12px;">📍 {lat:.4f}, {lng:.4f} • {radius} كم • {a['total_places']} محل • {a.get('area_character', '-')}</div>
+            </div>
+            <div style="color:#94a3b8; font-size:11px; text-align:left;">⬇️ اقرأ التحليل التفصيلي<br>للقرار الكامل في الأسفل</div>
+        </div>
+    </div>"""
+    st.markdown(teaser_banner, unsafe_allow_html=True)
+    
+    # نخزن القرار الكامل لعرضه في الأسفل
+    full_decision_card = f"""
     <div class="verdict-card" style="border-color:{a['decision_color']}; background:linear-gradient(135deg, {a['decision_bg']} 0%, #131826 100%);">
         <div class="verdict-header">
             <div>
@@ -4579,11 +4614,12 @@ else:
             <div class="verdict-tag">🏪 {a['total_places']} محل</div>
             <div class="verdict-tag">🌆 {a['area_type']}</div>"""
     if a.get('target_cat'):
-        decision_card += f'<div class="verdict-tag">{target_cat_name.replace(" • النشاط:", "🎯")}</div>'
+        full_decision_card += f'<div class="verdict-tag">{target_cat_name.replace(" • النشاط:", "🎯")}</div>'
     if a.get('gov_info'):
-        decision_card += f'<div class="verdict-tag">🏛️ {a["gov_info"]["name"]}</div>'
-    decision_card += "</div></div>"
-    st.markdown(decision_card, unsafe_allow_html=True)
+        full_decision_card += f'<div class="verdict-tag">🏛️ {a["gov_info"]["name"]}</div>'
+    full_decision_card += "</div></div>"
+    # نخزن للعرض في الأسفل
+    st.session_state['_full_decision_card_html'] = full_decision_card
 
     # ═══════════════════════════════════════════════════════
     # 🚨 بانر تحذيرات السوق الموحّد (مرة واحدة - لا تكرار في كل نشاط)
@@ -4714,7 +4750,7 @@ else:
                     icon_status = "⚪"
                     label = "غير مكتشف"
                     color = "#6b7280"
-                    detail = "قد يدل على غياب طلب"
+                    detail = "غير مسجّل في API - يحتاج تحقق ميداني"
                 elif s['status'] == 'truncated_likely_saturated':
                     icon_status = "🔴"
                     label = f"{s['count']}+ موجود (مشبع)"
@@ -4895,67 +4931,6 @@ else:
                         </div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
-    # 🎯 أفضل نشاط مقترح (لو ما حدد) - مع كيمياء العائلة
-    # ═══════════════════════════════════════════════════════
-    if not a.get('target_cat') and a.get('best_activities'):
-        top_act = a['best_activities'][0]
-        reasons_text = " • ".join(top_act['reasons'])
-        final_score = top_act.get('final_opportunity', top_act['opportunity_score'])
-        harmony = top_act.get('harmony_score', 0)
-        harmony_color = top_act.get('harmony_color', '#94a3b8')
-        harmony_level = top_act.get('harmony_level', '-')
-        synergies = top_act.get('synergies', [])
-        
-        # عرض الترابطات القوية
-        synergies_html = ""
-        if synergies:
-            synergies_html = '<div style="margin-top:14px; padding:12px; background:rgba(16,185,129,0.06); border-radius:10px; border-right:3px solid #10b981;">'
-            synergies_html += '<div style="color:#86efac; font-size:12px; font-weight:600; margin-bottom:8px;">🧪 ترابطات قوية مع المحيط:</div>'
-            for syn in synergies[:3]:
-                synergies_html += f'<div style="color:#cbd5e1; font-size:12px; padding:3px 0;">✓ {syn["icon"]} {syn["name"]} ({syn["count"]} محل) — <span style="color:#94a3b8;">{syn["reason"]}</span></div>'
-            synergies_html += '</div>'
-        
-        # 🔴 عنوان ديناميكي حسب قوة الفرصة
-        top_score_v = top_act.get('final_opportunity', top_act.get('opportunity_score', 0))
-        if top_score_v >= 60:
-            section_title = "🎯 أفضل نشاط مقترح لهذا الموقع"
-            section_subtitle = ""
-        elif top_score_v >= 40:
-            section_title = "⚠️ الأقل مخاطرة (السوق مكتظ نسبياً)"
-            section_subtitle = "تحذير: لا توجد فرص قوية، هذا أفضل ما هو متاح"
-        else:
-            section_title = "🚨 الأقل مخاطرة (السوق مشبع)"
-            section_subtitle = "تحذير: كل الأنشطة عالية المخاطرة - يُنصح بموقع آخر"
-        
-        st.markdown(f"""<div style="background: linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(139,92,246,0.08) 100%);
-            border: 2px solid #a855f7; border-radius: 18px; padding: 22px; margin-bottom: 18px;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
-                <div style="flex:1; min-width:280px;">
-                    <div style="color:#c4b5fd; font-size:13px; font-weight:600; margin-bottom:6px;">{section_title}</div>
-                    {f'<div style="color:#fca5a5; font-size:11px; margin-bottom:6px;">{section_subtitle}</div>' if section_subtitle else ''}
-                    <div style="color:white; font-size:26px; font-weight:800; margin-bottom:10px;">{top_act['icon']} {top_act['cat_name']}</div>
-                    <div style="color:#e2e8f0; font-size:14px; line-height:1.7; margin-bottom:12px;">
-                        💡 <b>لماذا هذا النشاط؟</b> {reasons_text}
-                    </div>
-                    <div style="display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:#cbd5e1;">
-                        <span>📊 الطلب: <b style="color:#10b981;">{top_act['demand']}%</b></span>
-                        <span>🏪 منافسين: <b>{top_act['existing']}</b></span>
-                        <span>📈 تشبع: <b>{top_act['saturation']}%</b></span>
-                        <span>🧪 الانسجام: <b style="color:{harmony_color};">{harmony}% ({harmony_level})</b></span>
-                    </div>
-                </div>
-                <div style="background:rgba(16,185,129,0.2); color:#10b981; padding:14px 22px; border-radius:14px; text-align:center; min-width:120px;">
-                    <div style="font-size:11px; opacity:0.8;">الفرصة النهائية</div>
-                    <div style="font-size:36px; font-weight:900; line-height:1;">{final_score}<span style="font-size:18px;">%</span></div>
-                </div>
-            </div>
-            {synergies_html}
-            <div style="margin-top:14px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08); color:#94a3b8; font-size:12px;">
-                ⚠️ اقتراح مبني على تحليل ترابطات مع المحيط - يحتاج تحقق ميداني قبل القرار.
-            </div>
-            </div>""", unsafe_allow_html=True)
-
-    # ═══════════════════════════════════════════════════════
     # ✍️ تحليل النشاط المخصص
     # ═══════════════════════════════════════════════════════
     if a.get('custom_activity_analysis'):
@@ -4990,39 +4965,39 @@ else:
             </div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
-    # 📊 المؤشرات الثلاث
+    # 📊 المؤشرات الثلاث - بالمستويات (4 درجات)
     # ═══════════════════════════════════════════════════════
     st.markdown('<div class="section-title">📊 المؤشرات الأساسية</div>', unsafe_allow_html=True)
     m1, m2, m3 = st.columns(3)
     opp = a['opportunity_score']; sat = a['saturation_score']; dem = a['demand_score']
     
-    opp_color = '#10b981' if opp >= 60 else '#f59e0b' if opp >= 35 else '#ef4444'
-    sat_color = '#ef4444' if sat >= 70 else '#f59e0b' if sat >= 40 else '#10b981'
-    dem_color = '#10b981' if dem >= 65 else '#f59e0b' if dem >= 40 else '#ef4444'
+    opp_lvl = score_to_level(opp)
+    sat_lvl = score_to_level(sat, reverse=True)  # التشبع معكوس
+    dem_lvl = score_to_level(dem)
     
     with m1:
         st.markdown(f"""<div class="big-metric">
             <div class="big-metric-icon">🎯</div>
             <div class="big-metric-label">فرصة الدخول</div>
-            <div class="big-metric-value" style="color:{opp_color};">{opp}<span style="font-size:24px;">%</span></div>
-            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{opp}%; background:{opp_color};"></div></div>
-            <div class="big-metric-sub">نسبة احتمال نجاح فتح نشاط جديد</div>
+            <div style="font-size:28px; font-weight:900; color:{opp_lvl['color']}; line-height:1.1; margin:8px 0;">{opp_lvl['icon']} {opp_lvl['level']}</div>
+            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{opp}%; background:{opp_lvl['color']};"></div></div>
+            <div class="big-metric-sub">{opp_lvl['meaning']}</div>
         </div>""", unsafe_allow_html=True)
     with m2:
         st.markdown(f"""<div class="big-metric">
             <div class="big-metric-icon">📈</div>
             <div class="big-metric-label">تشبع السوق</div>
-            <div class="big-metric-value" style="color:{sat_color};">{sat}<span style="font-size:24px;">%</span></div>
-            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{sat}%; background:{sat_color};"></div></div>
-            <div class="big-metric-sub">{"مشبع - منافسة عالية" if sat >= 70 else "متوسط" if sat >= 40 else "فرصة لدخول السوق"}</div>
+            <div style="font-size:28px; font-weight:900; color:{sat_lvl['color']}; line-height:1.1; margin:8px 0;">{sat_lvl['icon']} {sat_lvl['level']}</div>
+            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{sat}%; background:{sat_lvl['color']};"></div></div>
+            <div class="big-metric-sub">{sat_lvl['meaning']}</div>
         </div>""", unsafe_allow_html=True)
     with m3:
         st.markdown(f"""<div class="big-metric">
             <div class="big-metric-icon">🔥</div>
             <div class="big-metric-label">الطلب المتوقع</div>
-            <div class="big-metric-value" style="color:{dem_color};">{dem}<span style="font-size:24px;">%</span></div>
-            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{dem}%; background:{dem_color};"></div></div>
-            <div class="big-metric-sub">{"طلب مرتفع" if dem >= 65 else "طلب متوسط" if dem >= 40 else "طلب منخفض"}</div>
+            <div style="font-size:28px; font-weight:900; color:{dem_lvl['color']}; line-height:1.1; margin:8px 0;">{dem_lvl['icon']} {dem_lvl['level']}</div>
+            <div class="big-metric-bar"><div class="big-metric-bar-fill" style="width:{dem}%; background:{dem_lvl['color']};"></div></div>
+            <div class="big-metric-sub">{dem_lvl['meaning']}</div>
         </div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
@@ -5036,7 +5011,7 @@ else:
         
         # عرض البطاقة الأساسية للمحافظة
         st.markdown(f"""<div class="governorate-card">
-<div class="gov-name">🏛️ بيانات المحافظة (تعداد GASTAT 2022)</div>
+<div class="gov-name">🏛️ بيانات المحافظة</div>
 <div style="color:white; font-size:20px; font-weight:800; margin-bottom:6px;">{gi['name']}</div>
 <div class="gov-stats">
 <div class="gov-stat-item">👥 سكان المحافظة: <b>{gi['data']['pop']:,}</b></div>
@@ -5052,19 +5027,14 @@ else:
         local_density_val = a.get('local_density', 0)
         area_char = a.get('area_character', '-')
         if local_pop:
-            shop_per_km2 = a['total_places'] / (3.14159 * radius**2) if radius > 0 else 0
             st.markdown(f"""<div style="background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.3); border-right:4px solid #10b981; padding:14px; border-radius:12px; margin-bottom:14px;">
 <div style="color:#86efac; font-size:13px; font-weight:700; margin-bottom:8px;">📊 التقدير المحلي (داخل نطاق التحليل)</div>
 <div style="color:#cbd5e1; font-size:13px; line-height:2;">
 👥 السكان المحليون: <b style="color:white;">~{local_pop:,}</b> &nbsp;|&nbsp;
-📊 الكثافة المحلية: <b style="color:white;">{local_density_val:,}</b> ن/كم² &nbsp;|&nbsp;
 🏘️ نوع المنطقة: <b style="color:white;">{area_char}</b>
 </div>
-<div style="color:#94a3b8; font-size:11px; margin-top:8px;">
-💡 تقدير مبني على نوع المنطقة (مستنتج من {a['total_places']} محل / {shop_per_km2:.1f} لكل كم²)
-</div>
-<div style="color:#fbbf24; font-size:11px; margin-top:4px;">
-⚠️ التقدير المحلي تقريبي - للدقة الكاملة استبيان ميداني.
+<div style="color:#fbbf24; font-size:11px; margin-top:6px;">
+⚠️ تقدير تقريبي - للدقة الكاملة يحتاج استبيان ميداني.
 </div>
 </div>""", unsafe_allow_html=True)
 
@@ -5076,61 +5046,22 @@ else:
         top_act_for_family = a['best_activities'][0]
         dom_fam = top_act_for_family.get('dominant_family')
         
-        st.markdown('<div class="section-title">🧪 كيمياء العائلة - تحليل الانسجام مع المحيط</div>',
+        st.markdown('<div class="section-title">🧪 الانسجام مع المحيط</div>',
                     unsafe_allow_html=True)
-        
-        # شريط توضيح
-        st.markdown(f"""<div style="background:linear-gradient(135deg, rgba(168,85,247,0.10) 0%, #131826 100%); 
-            border:1px solid rgba(168,85,247,0.3); border-radius:14px; padding:16px; margin-bottom:14px;">
-            <div style="color:#c4b5fd; font-size:14px; font-weight:600; margin-bottom:6px;">
-                💡 ما هي كيمياء العائلة؟
-            </div>
-            <div style="color:#cbd5e1; font-size:13px; line-height:1.7;">
-                تحليل مدى انسجام كل نشاط مع المحلات الموجودة - مبني على نظريات Co-Tenancy و Trip Chaining.
-                مثال: مغسلة سيارات تنسجم مع المقاهي (الانتظار) والوقود (خدمة شاملة).
-                <b style="color:#86efac;">كل نشاط مقترح له ترابطات حقيقية مع المحيط.</b>
-            </div>
-        </div>""", unsafe_allow_html=True)
         
         # العائلة الغالبة
         if dom_fam:
             st.markdown(f"""<div style="background:rgba(59,130,246,0.08); border-right:4px solid #3b82f6; 
                 padding:14px 18px; border-radius:10px; margin-bottom:14px;">
-                <div style="color:#93c5fd; font-size:13px; font-weight:600;">🏆 العائلة التجارية الغالبة في المنطقة</div>
+                <div style="color:#93c5fd; font-size:13px; font-weight:600;">🏆 الطابع التجاري الغالب في المنطقة</div>
                 <div style="color:white; font-size:20px; font-weight:800; margin-top:6px;">
                     {dom_fam['icon']} {dom_fam['name']} <span style="color:#94a3b8; font-size:14px; font-weight:400;">({dom_fam['count']} محل)</span>
                 </div>
                 <div style="color:#94a3b8; font-size:12px; margin-top:6px;">
-                    💡 الأنشطة المنسجمة مع هذه العائلة لها فرصة أعلى للنجاح
+                    💡 الأنشطة المنسجمة مع هذا الطابع لها فرصة أعلى للنجاح
                 </div>
             </div>""", unsafe_allow_html=True)
         
-        # توضيح كيف تتغير النتيجة
-        with st.expander("🔬 كيف يؤثر الانسجام على ترتيب الأنشطة؟"):
-            st.markdown("""
-            **المعادلة:**
-            ```
-            الفرصة النهائية = (الفرصة الأصلية × 40%) + (الانسجام × 60%)
-            ```
-            
-            **تعديلات إضافية:**
-            - **لا توجد ترابطات قوية** → خصم 15 نقطة (يمنع اقتراح "إلكترونيات في منطقة مطاعم")
-            - **3+ ترابطات قوية** → بونص 5 نقاط
-            - **ينتمي للعائلة الغالبة** → بونص 3 نقاط
-            
-            **مستويات الانسجام:**
-            - 🟢 **70-100%:** انسجام ممتاز - ترابطات قوية متعددة
-            - 🟡 **50-69%:** انسجام جيد - ترابطات ملحوظة
-            - 🟠 **30-49%:** انسجام متوسط - بعض الترابطات
-            - 🔴 **15-29%:** انسجام ضعيف - ترابطات محدودة
-            - ⚫ **0-14%:** غريب عن المحيط - يحتاج جذب جمهور خاص
-            
-            **المصادر النظرية:**
-            - Retail Agglomeration Theory
-            - Co-Tenancy Effect (Brown 1987, Konishi 2005)
-            - Trip Chaining Behavior
-            - Central Place Theory
-            """)
     
     # ═══════════════════════════════════════════════════════
     # ✅ أفضل الأنشطة المقترحة + ❌ أسوأها (مدعومة بكيمياء العائلة)
@@ -5138,24 +5069,40 @@ else:
     col_best, col_worst = st.columns(2)
     
     with col_best:
-        st.markdown('<div class="section-title">✅ أفضل الأنشطة المقترحة</div>', unsafe_allow_html=True)
-        st.caption("🧪 مدعومة بتحليل كيمياء العائلة - الانسجام مع المحيط")
+        # 🔴 عنوان ديناميكي حسب قوة أفضل نشاط
+        best_acts = a.get('best_activities', [])
+        if best_acts:
+            top_final = best_acts[0].get('final_opportunity', best_acts[0]['opportunity_score'])
+            if top_final >= 55:
+                col_best_title = "✅ أفضل الأنشطة المقترحة"
+            elif top_final >= 35:
+                col_best_title = "⚠️ الأقل مخاطرة"
+            else:
+                col_best_title = "🚨 الأقل سوءاً (الكل مخاطرة)"
+        else:
+            col_best_title = "✅ أفضل الأنشطة المقترحة"
+        
+        st.markdown(f'<div class="section-title">{col_best_title}</div>', unsafe_allow_html=True)
+        st.caption("🧪 مرتّبة حسب الانسجام مع المحيط")
         for i, act in enumerate(a.get('best_activities', [])[:5], 1):
             reasons = " • ".join(act['reasons'])
             final_score = act.get('final_opportunity', act['opportunity_score'])
             harmony = act.get('harmony_score', 0)
-            harmony_color = act.get('harmony_color', '#94a3b8')
-            score_class = "" if final_score >= 60 else "warn" if final_score >= 35 else "bad"
+            
+            # تطبيق المستوى
+            final_lvl = score_to_level(final_score)
+            harmony_lvl = score_to_level(harmony)
+            
             st.markdown(f"""<div class="activity-rank-card">
                 <div class="rank-number">{i}</div>
                 <div class="rank-content">
                     <div class="rank-name">{act['icon']} {act['cat_name']}</div>
                     <div class="rank-reason">💡 {reasons}<br>
-                        <span style="color:#64748b;">طلب: {act['demand']}% | منافسين: {act['existing']} | إشباع: {act['saturation']}% | 
-                        <span style="color:{harmony_color};">🧪 انسجام: {harmony}%</span></span>
+                        <span style="color:#64748b; font-size:11px;">منافسين: {act['existing']} | 
+                        <span style="color:{harmony_lvl['color']};">🧪 الانسجام: {harmony_lvl['icon']} {harmony_lvl['level']}</span></span>
                     </div>
                 </div>
-                <div class="rank-score-pill {score_class}">{final_score}%</div>
+                <div style="background:{final_lvl['color']}22; color:{final_lvl['color']}; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap;">{final_lvl['icon']} {final_lvl['level']}</div>
             </div>""", unsafe_allow_html=True)
 
     with col_worst:
@@ -5166,64 +5113,23 @@ else:
                 reasons = " • ".join(act['reasons'])
                 final_score = act.get('final_opportunity', act['opportunity_score'])
                 harmony = act.get('harmony_score', 0)
-                harmony_color = act.get('harmony_color', '#94a3b8')
+                
+                final_lvl = score_to_level(final_score)
+                harmony_lvl = score_to_level(harmony)
+                
                 st.markdown(f"""<div class="activity-rank-card" style="border-color:rgba(239,68,68,0.3);">
                     <div class="rank-number" style="color:#ef4444;">✗</div>
                     <div class="rank-content">
                         <div class="rank-name">{act['icon']} {act['cat_name']}</div>
                         <div class="rank-reason">⚠️ {reasons}<br>
-                            <span style="color:#64748b;">منافسين: {act['existing']} | إشباع: {act['saturation']}% | 
-                            <span style="color:{harmony_color};">🧪 انسجام: {harmony}%</span></span>
+                            <span style="color:#64748b; font-size:11px;">منافسين: {act['existing']} | 
+                            <span style="color:{harmony_lvl['color']};">🧪 الانسجام: {harmony_lvl['icon']} {harmony_lvl['level']}</span></span>
                         </div>
                     </div>
-                    <div class="rank-score-pill bad">{final_score}%</div>
+                    <div style="background:{final_lvl['color']}22; color:{final_lvl['color']}; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap;">{final_lvl['icon']} {final_lvl['level']}</div>
                 </div>""", unsafe_allow_html=True)
         else:
             st.info("لا توجد أنشطة بفرصة منخفضة جداً - كل الأنشطة لها إمكانات")
-
-    # ═══════════════════════════════════════════════════════
-    # ⚖️ تحليل SWOT - نقاط القوة والضعف والفرص والتهديدات
-    # ═══════════════════════════════════════════════════════
-    st.markdown('<div class="section-title">⚖️ تحليل SWOT - دراسة شاملة للموقع</div>', unsafe_allow_html=True)
-    st.caption("تحليل مبني على الأرقام الفعلية للموقع - يساعدك في اتخاذ القرار")
-    
-    swot = a.get('swot', {})
-    
-    # عرض في 2×2 grid
-    swot_row1_col1, swot_row1_col2 = st.columns(2)
-    swot_row2_col1, swot_row2_col2 = st.columns(2)
-    
-    with swot_row1_col1:
-        # Strengths - أخضر
-        items_html = "".join(f'<div style="color:#cbd5e1; padding:6px 0; font-size:13px; line-height:1.6; border-bottom:1px solid rgba(255,255,255,0.05);">✓ {s}</div>' for s in swot.get('strengths', []))
-        st.markdown(f"""<div style="background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.3); border-right:4px solid #10b981; padding:14px; border-radius:12px; min-height:200px;">
-<div style="color:#86efac; font-size:14px; font-weight:700; margin-bottom:10px;">✅ نقاط القوة (Strengths)</div>
-{items_html}
-</div>""", unsafe_allow_html=True)
-    
-    with swot_row1_col2:
-        # Weaknesses - برتقالي
-        items_html = "".join(f'<div style="color:#cbd5e1; padding:6px 0; font-size:13px; line-height:1.6; border-bottom:1px solid rgba(255,255,255,0.05);">⚠ {w}</div>' for w in swot.get('weaknesses', []))
-        st.markdown(f"""<div style="background:rgba(245,158,11,0.10); border:1px solid rgba(245,158,11,0.3); border-right:4px solid #f59e0b; padding:14px; border-radius:12px; min-height:200px;">
-<div style="color:#fcd34d; font-size:14px; font-weight:700; margin-bottom:10px;">⚠️ نقاط الضعف (Weaknesses)</div>
-{items_html}
-</div>""", unsafe_allow_html=True)
-    
-    with swot_row2_col1:
-        # Opportunities - أزرق
-        items_html = "".join(f'<div style="color:#cbd5e1; padding:6px 0; font-size:13px; line-height:1.6; border-bottom:1px solid rgba(255,255,255,0.05);">💎 {o}</div>' for o in swot.get('opportunities', []))
-        st.markdown(f"""<div style="background:rgba(59,130,246,0.10); border:1px solid rgba(59,130,246,0.3); border-right:4px solid #3b82f6; padding:14px; border-radius:12px; min-height:200px;">
-<div style="color:#93c5fd; font-size:14px; font-weight:700; margin-bottom:10px;">💎 الفرص (Opportunities)</div>
-{items_html}
-</div>""", unsafe_allow_html=True)
-    
-    with swot_row2_col2:
-        # Threats - أحمر
-        items_html = "".join(f'<div style="color:#cbd5e1; padding:6px 0; font-size:13px; line-height:1.6; border-bottom:1px solid rgba(255,255,255,0.05);">🚨 {t}</div>' for t in swot.get('threats', []))
-        st.markdown(f"""<div style="background:rgba(239,68,68,0.10); border:1px solid rgba(239,68,68,0.3); border-right:4px solid #ef4444; padding:14px; border-radius:12px; min-height:200px;">
-<div style="color:#fca5a5; font-size:14px; font-weight:700; margin-bottom:10px;">🚨 التهديدات (Threats)</div>
-{items_html}
-</div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
     # 💰 التحليل المالي (لو موجود)
@@ -5332,54 +5238,26 @@ else:
         </div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
-    # 🧬 DNA الحي (مع تحذير) + معلومات سريعة
+    # 🧬 تركيبة المحلات في المحيط (DNA)
     # ═══════════════════════════════════════════════════════
-    dn1, dn2 = st.columns(2)
-    
-    with dn1:
-        if a.get('dna'):
-            d = a['dna']
-            colors = {'family': '#10b981', 'youth': '#a855f7', 'commercial': '#3b82f6', 'food': '#ef4444', 'service': '#f59e0b'}
-            labels = {'family': 'عائلي', 'youth': 'شبابي', 'commercial': 'تجاري', 'food': 'طعام', 'service': 'خدماتي'}
-            dna_html = ""
-            for k in ['family', 'youth', 'commercial', 'food', 'service']:
-                val = d.get(k, 0)
-                dna_html += f"""<div class="dna-row">
-                    <div class="dna-label">{labels[k]}</div>
-                    <div class="dna-bar"><div class="dna-fill" style="width:{val}%; background:{colors[k]};"></div></div>
-                    <div class="dna-value" style="color:{colors[k]};">{val}%</div>
-                </div>"""
-            st.markdown(f"""<div class="info-card">
-                <div class="info-card-title">🏪 تركيبة المحلات في المحيط <span style="font-size:11px; color:#94a3b8; font-weight:400;">(تحليل العرض)</span></div>
-                <div style="color:#cbd5e1; margin-bottom:10px;">الطابع الأقوى للمحلات: <b style="color:white;">{d['main']}</b></div>
-                {dna_html}
-                <div style="color:#fbbf24; font-size:11px; margin-top:10px;">
-                    📊 يصف <b>نوع المحلات الموجودة</b> (العرض) - ليس تركيبة السكان (الطلب)
-                </div>
-            </div>""", unsafe_allow_html=True)
-    
-    with dn2:
+    if a.get('dna'):
+        d = a['dna']
+        colors = {'family': '#10b981', 'youth': '#a855f7', 'commercial': '#3b82f6', 'food': '#ef4444', 'service': '#f59e0b'}
+        labels = {'family': 'عائلي', 'youth': 'شبابي', 'commercial': 'تجاري', 'food': 'طعام', 'service': 'خدماتي'}
+        dna_html = ""
+        for k in ['family', 'youth', 'commercial', 'food', 'service']:
+            val = d.get(k, 0)
+            dna_html += f"""<div class="dna-row">
+                <div class="dna-label">{labels[k]}</div>
+                <div class="dna-bar"><div class="dna-fill" style="width:{val}%; background:{colors[k]};"></div></div>
+                <div class="dna-value" style="color:{colors[k]};">{val}%</div>
+            </div>"""
         st.markdown(f"""<div class="info-card">
-            <div class="info-card-title">⚡ معلومات سريعة</div>
-            <div class="quick-row">
-                <span style="color:#94a3b8;">🌆 نوع المنطقة</span>
-                <span style="color:white; font-weight:600;">{a['area_type']}</span>
-            </div>
-            <div class="quick-row">
-                <span style="color:#94a3b8;">🚗 الحركة</span>
-                <span style="color:white; font-weight:600;">{a['traffic_level']}</span>
-            </div>
-            <div class="quick-row">
-                <span style="color:#94a3b8;">🛣️ سهولة الوصول</span>
-                <span style="color:white; font-weight:600;">{a['accessibility']}</span>
-            </div>
-            <div class="quick-row">
-                <span style="color:#94a3b8;">👥 كثافة السكان</span>
-                <span style="color:white; font-weight:600;">{a['pop_density']}</span>
-            </div>
-            <div class="quick-row">
-                <span style="color:#94a3b8;">🏪 إجمالي المحلات</span>
-                <span style="color:white; font-weight:600;">{a['total_places']} في {a['active_cat_count']} فئة</span>
+            <div class="info-card-title">🏪 تركيبة المحلات في المحيط <span style="font-size:11px; color:#94a3b8; font-weight:400;">(تحليل العرض)</span></div>
+            <div style="color:#cbd5e1; margin-bottom:10px;">الطابع الأقوى للمحلات: <b style="color:white;">{d['main']}</b></div>
+            {dna_html}
+            <div style="color:#fbbf24; font-size:11px; margin-top:10px;">
+                📊 يصف <b>نوع المحلات الموجودة</b> (العرض) - ليس تركيبة السكان (الطلب)
             </div>
         </div>""", unsafe_allow_html=True)
 
@@ -5431,11 +5309,9 @@ else:
     truncated_count = sum(1 for f in trunc_flags.values() if f)
     if truncated_count >= 3:
         st.markdown(f"""<div style="background:rgba(239,68,68,0.10); border:1px solid #ef4444; border-right:4px solid #ef4444; border-radius:12px; padding:14px; margin-bottom:14px;">
-<div style="color:#fca5a5; font-size:14px; font-weight:700; margin-bottom:6px;">⚠️ بيانات API محدودة - الأعداد قد تكون أعلى من المعروض</div>
+<div style="color:#fca5a5; font-size:14px; font-weight:700; margin-bottom:6px;">⚠️ بيانات هذه المنطقة مكثّفة</div>
 <div style="color:#cbd5e1; font-size:13px; line-height:1.7;">
-<b>{truncated_count} فئة</b> وصلت لحد Mapbox API (25 محل). الأعداد الفعلية قد تكون أعلى بكثير.<br>
-العلامة <b style="color:#dc2626;">"+"</b> بعد الرقم تشير لاحتمال اقتطاع البيانات.<br>
-💡 <b>التأثير:</b> الإشباع الفعلي قد يكون أعلى مما يظهر التحليل، فكن أكثر حذراً.
+<b>{truncated_count} فئة</b> قد يكون الواقع فيها أكبر مما يظهر. الإشباع الفعلي قد يكون أعلى - كن أكثر حذراً.
 </div>
 </div>""", unsafe_allow_html=True)
     
@@ -5486,45 +5362,14 @@ else:
             st.markdown("---")
 
     # ═══════════════════════════════════════════════════════
-    # 🏛️ بطاقة المحافظة في الأسفل - تظهر هنا فقط بدون تحديد نشاط
-    # (مع تحديد نشاط تظهر في الأعلى بعد المؤشرات)
+    # 🎯 القرار النهائي الكامل - في الأسفل (بعد قراءة كل المحتوى)
     # ═══════════════════════════════════════════════════════
-    if a.get('gov_info') and not a.get('target_cat'):
-        gi = a['gov_info']
-        conf_label = {"high": "✅ مطابقة عالية", "medium": "⚠️ مطابقة متوسطة", "low": "⚠️ مطابقة محدودة"}.get(gi['confidence'], '-')
-        gov_density_b = gi['data']['pop'] / gi['data']['area'] if gi['data']['area'] > 0 else 0
-        
-        st.markdown('<div class="section-title">🏛️ السياق الإحصائي العام</div>', unsafe_allow_html=True)
-        st.caption("بيانات السكان والمساحة على مستوى المحافظة كاملة (مرجعية فقط)")
-        
-        st.markdown(f"""<div class="governorate-card">
-<div class="gov-name">🏛️ بيانات المحافظة (تعداد GASTAT 2022)</div>
-<div style="color:white; font-size:20px; font-weight:800; margin-bottom:6px;">{gi['name']}</div>
-<div class="gov-stats">
-<div class="gov-stat-item">👥 سكان المحافظة: <b>{gi['data']['pop']:,}</b></div>
-<div class="gov-stat-item">📐 المساحة: <b>{gi['data']['area']:,}</b> كم²</div>
-<div class="gov-stat-item">📊 الكثافة العامة: <b>{gov_density_b:.1f}</b> ن/كم²</div>
-<div class="gov-stat-item">🗺️ المنطقة: <b>{gi['data']['region']}</b></div>
-<div class="gov-stat-item">📍 المسافة: <b>{gi['distance_km']}</b> كم ({conf_label})</div>
-</div>
-</div>""", unsafe_allow_html=True)
-        
-        local_pop_b = a.get('local_population')
-        local_density_b = a.get('local_density', 0)
-        area_char_b = a.get('area_character', '-')
-        if local_pop_b:
-            shop_per_km2_b = a['total_places'] / (3.14159 * radius**2) if radius > 0 else 0
-            st.markdown(f"""<div style="background:rgba(16,185,129,0.10); border:1px solid rgba(16,185,129,0.3); border-right:4px solid #10b981; padding:14px; border-radius:12px; margin-bottom:14px;">
-<div style="color:#86efac; font-size:13px; font-weight:700; margin-bottom:8px;">📊 التقدير المحلي (داخل نطاق التحليل)</div>
-<div style="color:#cbd5e1; font-size:13px; line-height:2;">
-👥 السكان المحليون: <b style="color:white;">~{local_pop_b:,}</b> &nbsp;|&nbsp;
-📊 الكثافة المحلية: <b style="color:white;">{local_density_b:,}</b> ن/كم² &nbsp;|&nbsp;
-🏘️ نوع المنطقة: <b style="color:white;">{area_char_b}</b>
-</div>
-<div style="color:#94a3b8; font-size:11px; margin-top:8px;">
-💡 تقدير مبني على نوع المنطقة (مستنتج من {a['total_places']} محل / {shop_per_km2_b:.1f} لكل كم²)
-</div>
-</div>""", unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🎯 القرار النهائي</div>', unsafe_allow_html=True)
+    st.caption("بناءً على كل التحليل أعلاه، إليك القرار التفصيلي:")
+    
+    full_card = st.session_state.get('_full_decision_card_html', '')
+    if full_card:
+        st.markdown(full_card, unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
     # 📄 زر تصدير PDF - في الأسفل بعد كل المحتوى
