@@ -165,14 +165,23 @@ CATEGORIES = {
 # ════════════════════════════════════════════════════════════════
 # 🆕 التصنيف الهرمي - أساسي / احتياج / تكميلي حسب القطاع
 # ════════════════════════════════════════════════════════════════
+# 🆕 التصنيف الهرمي الشامل — أساسي / احتياج / تكميلي
+# منظّم حسب القطاع (الشخص، المنزل، السيارة، الجوال، الترفيه، ...).
+# المنطق:
+#   essential (أساسي): يجب توفره في أي حي سكني — غيابه نقص حرج.
+#   needed (احتياج): يستخدمه السكان بانتظام — غيابه فرصة قوية.
+#   extra (تكميلي): يحسّن جودة الحياة — فرصة لكن ليست ضرورة.
+# كل فئة في CATEGORIES مصنّفة هنا (لا فئات معلّقة).
+# ════════════════════════════════════════════════════════════════
 HIERARCHICAL_NEEDS = {
+    # ───────────── 👤 الشخص ─────────────
     'person_food': {
         'name': '🍽️ طعام وشراب',
         'sector': 'الشخص',
         'tiers': {
             'essential': ['grocery'],
             'needed': ['restaurant', 'bakery', 'butcher', 'vegetables'],
-            'extra': ['cafe', 'fast_food', 'sweets']
+            'extra': ['cafe', 'fast_food', 'sweets'],
         }
     },
     'person_clothing': {
@@ -181,7 +190,7 @@ HIERARCHICAL_NEEDS = {
         'tiers': {
             'essential': ['clothing_store'],
             'needed': ['tailor', 'shoe_shop'],
-            'extra': ['abaya_shop']
+            'extra': ['abaya_shop'],
         }
     },
     'person_health': {
@@ -190,7 +199,7 @@ HIERARCHICAL_NEEDS = {
         'tiers': {
             'essential': ['pharmacy'],
             'needed': ['clinic', 'hospital', 'medical_lab', 'dentist'],
-            'extra': ['beauty_salon']
+            'extra': [],
         }
     },
     'person_education': {
@@ -199,7 +208,7 @@ HIERARCHICAL_NEEDS = {
         'tiers': {
             'essential': ['school'],
             'needed': ['quran_school', 'training_center'],
-            'extra': ['library']
+            'extra': ['library'],
         }
     },
     'person_care': {
@@ -208,25 +217,27 @@ HIERARCHICAL_NEEDS = {
         'tiers': {
             'essential': [],
             'needed': ['barber', 'beauty_salon'],
-            'extra': []
+            'extra': [],
         }
     },
+
+    # ───────────── 🏠 المنزل ─────────────
     'home_maintenance': {
         'name': '🔧 صيانة منزل',
         'sector': 'المنزل',
         'tiers': {
             'essential': [],
-            'needed': ['plumber', 'electrician', 'carpenter'],
-            'extra': ['metalworker', 'ac_repair', 'painter']
+            'needed': ['plumber', 'electrician'],
+            'extra': ['carpenter', 'metalworker', 'ac_repair', 'painter'],
         }
     },
     'home_furniture': {
-        'name': '🛋️ أثاث وديكور',
+        'name': '🛋️ أثاث وإضاءة وديكور',
         'sector': 'المنزل',
         'tiers': {
             'essential': [],
-            'needed': ['furniture'],
-            'extra': ['lighting', 'curtains']
+            'needed': ['furniture', 'home_garden'],
+            'extra': ['lighting', 'curtains'],
         }
     },
     'home_services': {
@@ -235,16 +246,18 @@ HIERARCHICAL_NEEDS = {
         'tiers': {
             'essential': ['gas_supply'],
             'needed': ['locksmith', 'cleaning'],
-            'extra': ['pest_control']
+            'extra': ['pest_control'],
         }
     },
+
+    # ───────────── 🚗 السيارة ─────────────
     'car_essential': {
         'name': '⛽ سيارة - أساسي',
         'sector': 'السيارة',
         'tiers': {
             'essential': ['fuel'],
             'needed': ['auto_repair', 'tyre_shop', 'oil_change'],
-            'extra': []
+            'extra': [],
         }
     },
     'car_extras': {
@@ -253,52 +266,75 @@ HIERARCHICAL_NEEDS = {
         'tiers': {
             'essential': [],
             'needed': ['auto_parts'],
-            'extra': ['car_wash', 'upholstery', 'car_tinting', 'car_rental']
+            'extra': ['car_wash', 'upholstery', 'car_tinting', 'car_rental',
+                      'car_dealer', 'ev_charging_station', 'parking'],
         }
     },
+
+    # ───────────── 📱 الجوال والإلكترونيات ─────────────
     'mobile': {
         'name': '📱 جوال وإلكترونيات',
         'sector': 'الإلكترونيات',
         'tiers': {
             'essential': [],
             'needed': ['mobile_repair'],
-            'extra': ['mobile_accessories', 'electronics_store']
+            'extra': ['mobile_accessories', 'electronics_store'],
         }
     },
+
+    # ───────────── 💰 المالية ─────────────
     'finance': {
         'name': '💰 خدمات مالية',
         'sector': 'مالي',
         'tiers': {
             'essential': ['atm'],
             'needed': ['bank'],
-            'extra': []
+            'extra': [],
         }
     },
+
+    # ───────────── 🕌 الديني والمجتمعي ─────────────
     'religious': {
         'name': '🕌 ديني',
         'sector': 'مجتمعي',
         'tiers': {
             'essential': ['mosque'],
             'needed': [],
-            'extra': []
+            'extra': [],
         }
     },
+
+    # ───────────── 🎭 الترفيه ونمط الحياة ─────────────
     'entertainment': {
         'name': '🎭 ترفيه ونمط حياة',
         'sector': 'الترفيه',
         'tiers': {
             'essential': [],
             'needed': ['park', 'playground'],
-            'extra': ['cinema', 'fitness_center', 'shopping', 'game_center', 'museum', 'tourist_attraction']
+            'extra': ['cinema', 'fitness_center', 'shopping', 'game_center',
+                      'museum', 'tourist_attraction', 'sporting_goods', 'nightclub'],
         }
     },
+
+    # ───────────── 🏨 السفر والضيافة ─────────────
     'hospitality': {
         'name': '🏨 سفر وضيافة',
         'sector': 'السفر',
         'tiers': {
             'essential': [],
             'needed': ['hotel'],
-            'extra': ['car_rental', 'tourist_attraction']
+            'extra': [],
+        }
+    },
+
+    # ───────────── 🧰 خدمات عامة ─────────────
+    'general_services': {
+        'name': '🧰 خدمات عامة',
+        'sector': 'خدمي',
+        'tiers': {
+            'essential': [],
+            'needed': [],
+            'extra': ['services'],
         }
     },
 }
@@ -1365,6 +1401,22 @@ def dist_km(lat1, lng1, lat2, lng2):
     return R * 2 * math.asin(math.sqrt(a))
 
 
+# ════════════════════════════════════════════════════════════════
+# 🔧 إصلاح: الفئات التي يدعمها Mapbox Search Box (canonical category IDs)
+# الفئات خارج هذه المجموعة لا يدعمها Mapbox → نجلبها من OSM فقط
+# (كان الكود يضرب Mapbox لكل 67 فئة = طلبات ضائعة + نتائج 0 وهمية)
+# ════════════════════════════════════════════════════════════════
+MAPBOX_SUPPORTED = {
+    'restaurant', 'cafe', 'fast_food', 'shopping', 'clothing_store',
+    'electronics_store', 'home_garden', 'sporting_goods', 'fuel', 'pharmacy',
+    'grocery', 'services', 'auto_repair', 'car_wash', 'car_dealer',
+    'car_rental', 'ev_charging_station', 'parking', 'hospital', 'clinic',
+    'beauty_salon', 'park', 'fitness_center', 'cinema', 'museum',
+    'tourist_attraction', 'nightclub', 'library', 'atm', 'bank',
+    'hotel', 'school', 'mosque',
+}
+
+
 def search_mapbox(lat, lng, cat, limit=25, proximity_offset=None):
     """البحث عن محلات في فئة معينة عبر Mapbox Search Box API"""
     plat, plng = lat, lng
@@ -1587,6 +1639,12 @@ MAPBOX_TO_OSM = {
     # ترفيه
     'playground': [('leisure', 'playground'), ('leisure', 'pitch')],
     'game_center': [('leisure', 'amusement_arcade'), ('leisure', 'adult_gaming_centre')],
+    # 🔧 إصلاح: فئات كانت بلا أي مصدر (كانت ترجع 0 دائماً)
+    'home_garden': [('shop', 'doityourself'), ('shop', 'hardware'), ('shop', 'garden_centre'), ('shop', 'houseware')],
+    'sporting_goods': [('shop', 'sports')],
+    'car_dealer': [('shop', 'car')],
+    'ev_charging_station': [('amenity', 'charging_station')],
+    'nightclub': [('amenity', 'nightclub')],
 }
 
 
@@ -1678,6 +1736,23 @@ out center body;"""
         
         d = dist_km(lat, lng, plat, plng)
         if d <= radius_km:
+            # 🆕 تقييمات من OSM (مجانية ودائمة): وسوم stars / rating
+            osm_rating = None
+            raw_rating = tags.get('stars') or tags.get('rating')
+            if raw_rating:
+                try:
+                    val = float(str(raw_rating).split('/')[0].replace(',', '.'))
+                    # توحيد على مقياس 0-5 (بعض الوسوم 0-10)
+                    if val > 5:
+                        val = val / 2
+                    osm_rating = round(min(5.0, max(0.0, val)), 1)
+                except (ValueError, TypeError):
+                    osm_rating = None
+            osm_reviews = None
+            rev = tags.get('reviews') or tags.get('review_count')
+            if rev and str(rev).isdigit():
+                osm_reviews = int(rev)
+
             results[matched_cat].append({
                 'name': name,
                 'addr': tags.get('addr:full', ''),
@@ -1685,6 +1760,9 @@ out center body;"""
                 'lat': plat,
                 'lng': plng,
                 'source': 'osm',
+                'rating': osm_rating,
+                'reviews': osm_reviews,
+                'rating_source': 'osm' if osm_rating else None,
             })
     
     # ترتيب
@@ -1695,7 +1773,151 @@ out center body;"""
 
 
 # ════════════════════════════════════════════════════════════════
-# 🟨 Foursquare Places API Integration
+# 🛣️ تحليل نوع الشارع (رئيسي / ثانوي / فرعي)
+# يعتمد على وسم highway في OpenStreetMap (مجاني ودقيق)
+# نوع الشارع يرفع أو يخفض فرصة الموقع بشكل جوهري:
+#   - شارع رئيسي = حركة مرور عالية + ظهور = فرصة أعلى (لكن إيجار أعلى)
+#   - شارع فرعي = حركة محدودة = فرصة أقل للأنشطة المعتمدة على المارّة
+# ════════════════════════════════════════════════════════════════
+STREET_HIERARCHY = {
+    # tag value : (الفئة, وزن الأهمية, التأثير على الفرصة %)
+    'motorway':     ('رئيسي', 6, 0),    # سريع - لا يصلح للمحلات مباشرة
+    'trunk':        ('رئيسي', 5, 12),
+    'primary':      ('رئيسي', 5, 15),
+    'secondary':    ('ثانوي', 3, 8),
+    'tertiary':     ('ثانوي', 2, 4),
+    'unclassified': ('فرعي', 1, 0),
+    'residential':  ('فرعي', 1, -5),
+    'living_street':('فرعي', 1, -8),
+    'service':      ('فرعي', 0, -10),
+}
+
+
+def analyze_street_type(lat, lng, search_radius_m=120):
+    """
+    يحدد نوع الشارع الذي يقع عليه الموقع عبر أقرب طريق مُصنّف في OSM.
+    يرجع dict:
+      - category: 'رئيسي' / 'ثانوي' / 'فرعي' / 'غير معروف'
+      - name: اسم الشارع إن وُجد
+      - highway: قيمة الوسم الخام
+      - opportunity_modifier: تعديل على نقاط الفرصة (+/- %)
+      - nearby: قائمة بأنواع الشوارع القريبة (لتقييم التقاطعات)
+      - confidence: مدى الثقة في التحديد
+      - explanation: شرح نصي للأثر
+    """
+    radius = int(search_radius_m)
+    # نبحث عن كل الطرق المصنّفة قرب النقطة
+    hw_values = '|'.join(STREET_HIERARCHY.keys())
+    query = f"""[out:json][timeout:25];
+(
+  way["highway"~"^({hw_values})$"](around:{radius},{lat},{lng});
+);
+out tags geom;"""
+
+    mirrors = [
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+        'https://overpass.private.coffee/api/interpreter',
+    ]
+    headers = {'User-Agent': 'GBI-Investment-Analyzer/1.0'}
+    data = None
+    for mirror in mirrors:
+        try:
+            r = requests.post(mirror, data={'data': query}, headers=headers, timeout=30)
+            if r.status_code == 200:
+                data = r.json()
+                break
+        except Exception:
+            continue
+
+    if not data or not data.get('elements'):
+        return {
+            'category': 'غير معروف', 'name': '', 'highway': '',
+            'opportunity_modifier': 0, 'nearby': [], 'confidence': 'منخفضة',
+            'explanation': 'تعذّر تحديد نوع الشارع آلياً — يُنصح بالتحقق ميدانياً.',
+        }
+
+    def _min_dist_to_way(el):
+        geom = el.get('geometry', [])
+        best = 9e9
+        for pt in geom:
+            d = dist_km(lat, lng, pt['lat'], pt['lon']) * 1000  # متر
+            if d < best:
+                best = d
+        return best
+
+    candidates = []
+    for el in data['elements']:
+        tags = el.get('tags', {})
+        hw = tags.get('highway')
+        if hw not in STREET_HIERARCHY:
+            continue
+        cat, weight, modifier = STREET_HIERARCHY[hw]
+        d = _min_dist_to_way(el)
+        name = tags.get('name:ar') or tags.get('name') or ''
+        candidates.append({
+            'highway': hw, 'category': cat, 'weight': weight,
+            'modifier': modifier, 'dist_m': round(d, 1), 'name': name,
+        })
+
+    if not candidates:
+        return {
+            'category': 'غير معروف', 'name': '', 'highway': '',
+            'opportunity_modifier': 0, 'nearby': [], 'confidence': 'منخفضة',
+            'explanation': 'لا توجد طرق مُصنّفة قرب الموقع في OSM — تحقق ميدانياً.',
+        }
+
+    # الشارع الأساسي = الأقرب الذي له أعلى وزن ضمن نطاق قريب جداً (<=40م)
+    # نفضّل الأعلى أهمية ضمن أقرب الطرق
+    near = [c for c in candidates if c['dist_m'] <= 40] or candidates
+    near.sort(key=lambda c: (-c['weight'], c['dist_m']))
+    primary_street = near[0]
+
+    # كشف التقاطع: إن وُجد شارعان مختلفان كلاهما قريب (<=35م)
+    distinct_near = {}
+    for c in candidates:
+        if c['dist_m'] <= 35:
+            key = c['category']
+            if key not in distinct_near or c['dist_m'] < distinct_near[key]['dist_m']:
+                distinct_near[key] = c
+    is_corner = len(distinct_near) >= 2
+
+    modifier = primary_street['modifier']
+    explanation_parts = []
+    cat = primary_street['category']
+
+    if cat == 'رئيسي':
+        explanation_parts.append('الموقع على شارع رئيسي: حركة مرور وظهور عاليان يرفعان الفرصة، خاصة للمطاعم والمقاهي والتجزئة.')
+    elif cat == 'ثانوي':
+        explanation_parts.append('الموقع على شارع ثانوي: حركة معتدلة تناسب معظم الأنشطة بإيجار أقل من الرئيسي.')
+    elif cat == 'فرعي':
+        explanation_parts.append('الموقع على شارع فرعي/سكني: حركة المارّة محدودة، يناسب أنشطة الخدمة المحلية والاحتياج اليومي أكثر من الأنشطة المعتمدة على المرور.')
+
+    # بونص التقاطع
+    if is_corner:
+        corner_bonus = 5
+        modifier += corner_bonus
+        explanation_parts.append(f'الموقع قرب تقاطع ({" + ".join(distinct_near.keys())}) — ميزة إضافية للظهور (+{corner_bonus}%).')
+
+    nearby_summary = sorted(
+        [{'category': v['category'], 'highway': v['highway'], 'dist_m': v['dist_m'], 'name': v['name']}
+         for v in distinct_near.values()],
+        key=lambda x: x['dist_m']
+    )
+
+    confidence = 'عالية' if primary_street['dist_m'] <= 30 else ('متوسطة' if primary_street['dist_m'] <= 80 else 'منخفضة')
+
+    return {
+        'category': cat,
+        'name': primary_street['name'],
+        'highway': primary_street['highway'],
+        'dist_m': primary_street['dist_m'],
+        'opportunity_modifier': int(max(-15, min(20, modifier))),
+        'is_corner': is_corner,
+        'nearby': nearby_summary,
+        'confidence': confidence,
+        'explanation': ' '.join(explanation_parts),
+    }
 # ════════════════════════════════════════════════════════════════
 
 # تحويل فئات Mapbox → Foursquare category IDs
@@ -1726,46 +1948,68 @@ MAPBOX_TO_FOURSQUARE = {
 
 def search_foursquare(lat, lng, radius_km, api_key, cats_to_search=None):
     """
-    البحث في Foursquare Places API
-    مجاني حتى 1000 طلب/يوم - يحتاج API key مجاني
-    يضيف rating ⭐ + popularity للمحلات
+    البحث في Foursquare Places API.
+    🔧 إصلاح: نقاط V3 (api.foursquare.com/v3) تُوقَف في 15 مايو 2026.
+       ننتقل إلى endpoint الجديد (places-api.foursquare.com) المبني على FSQ OS Places،
+       مع V3 القديم كاحتياطي مؤقت لمن لا يزال مفتاحه يعمل عليه.
+    يضيف rating ⭐ + عدد المراجعات للمحلات.
     """
     if not api_key:
         return {}
-    
+
     cats_to_search = cats_to_search or list(MAPBOX_TO_FOURSQUARE.keys())
     radius_m = int(radius_km * 1000)
-    headers = {
-        'Authorization': api_key,
-        'Accept': 'application/json',
-    }
-    
+
+    # الترتيب: الجديد أولاً ثم V3 كاحتياطي
+    endpoints = [
+        {
+            'url': 'https://places-api.foursquare.com/places/search',
+            'headers': {
+                'Authorization': f'Bearer {api_key}',
+                'Accept': 'application/json',
+                'X-Places-Api-Version': '2025-06-17',
+            },
+        },
+        {
+            'url': 'https://api.foursquare.com/v3/places/search',
+            'headers': {
+                'Authorization': api_key,
+                'Accept': 'application/json',
+            },
+        },
+    ]
+
     results = {cat: [] for cat in cats_to_search}
-    
-    # طلب واحد لكل فئة (Foursquare لا يدعم multi-category)
+
     for cat in cats_to_search:
         fsq_cat = MAPBOX_TO_FOURSQUARE.get(cat)
         if not fsq_cat:
             continue
-        
-        try:
-            r = requests.get(
-                'https://api.foursquare.com/v3/places/search',
-                params={
-                    'll': f'{lat},{lng}',
-                    'radius': radius_m,
-                    'categories': fsq_cat,
-                    'limit': 50,
-                },
-                headers=headers,
-                timeout=10
-            )
-            if r.status_code != 200:
+
+        data = None
+        for ep in endpoints:
+            try:
+                r = requests.get(
+                    ep['url'],
+                    params={
+                        'll': f'{lat},{lng}',
+                        'radius': radius_m,
+                        'fsq_category_ids': fsq_cat,
+                        'categories': fsq_cat,  # اسم البارامتر القديم في V3
+                        'limit': 50,
+                        'fields': 'name,geocodes,location,rating,stats,fsq_place_id,fsq_id',
+                    },
+                    headers=ep['headers'],
+                    timeout=10
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    break
+            except Exception:
                 continue
-            data = r.json()
-        except Exception:
+        if not data:
             continue
-        
+
         for place in data.get('results', []):
             name = place.get('name', '')
             if not name:
@@ -1775,15 +2019,16 @@ def search_foursquare(lat, lng, radius_km, api_key, cats_to_search=None):
             plng = loc.get('longitude')
             if not (plat and plng):
                 continue
-            
+
             d = dist_km(lat, lng, plat, plng)
             if d > radius_km:
                 continue
-            
-            # Foursquare rating (6-10 scale → نحول لـ 0-5)
-            fsq_rating = place.get('rating')  # 6-10
-            rating_5 = (fsq_rating / 2) if fsq_rating else None
-            
+
+            # Foursquare rating (مقياس 0-10 → نحول لـ 0-5)
+            fsq_rating = place.get('rating')
+            rating_5 = round(fsq_rating / 2, 1) if fsq_rating else None
+            reviews = (place.get('stats') or {}).get('total_ratings')
+
             results[cat].append({
                 'name': name,
                 'addr': place.get('location', {}).get('formatted_address', ''),
@@ -1792,7 +2037,9 @@ def search_foursquare(lat, lng, radius_km, api_key, cats_to_search=None):
                 'lng': plng,
                 'source': 'foursquare',
                 'rating': rating_5,
-                'fsq_id': place.get('fsq_id'),
+                'reviews': reviews,
+                'rating_source': 'foursquare' if rating_5 else None,
+                'fsq_id': place.get('fsq_place_id') or place.get('fsq_id'),
             })
     
     return results
@@ -1876,6 +2123,36 @@ def merge_sources(*results_dicts):
     return merged
 
 
+def category_ratings_summary(places):
+    """
+    🆕 يلخّص تقييمات المحلات داخل فئة واحدة.
+    يرجع: متوسط التقييم، عدد المُقيَّمة، إجمالي المراجعات، نسبة التغطية.
+    يُستخدم لإضافة بُعد "جودة المنافسين" للتحليل بدلاً من العدد فقط.
+    """
+    rated = [p for p in places if p.get('rating') is not None]
+    total = len(places)
+    if not rated:
+        return {
+            'avg_rating': None, 'rated_count': 0, 'total_count': total,
+            'total_reviews': 0, 'coverage': 0.0, 'has_data': False,
+        }
+    avg = sum(p['rating'] for p in rated) / len(rated)
+    total_reviews = sum((p.get('reviews') or 0) for p in rated)
+    return {
+        'avg_rating': round(avg, 1),
+        'rated_count': len(rated),
+        'total_count': total,
+        'total_reviews': total_reviews,
+        'coverage': round(len(rated) / total, 2) if total else 0.0,
+        'has_data': True,
+    }
+
+
+def all_ratings_summary(pbc):
+    """يطبّق category_ratings_summary على كل الفئات في نتيجة المسح."""
+    return {cat: category_ratings_summary(places) for cat, places in pbc.items()}
+
+
 def comprehensive_scan(lat, lng, radius_km, sources=None, progress_callback=None):
     """
     🔴 فحص شامل محسّن:
@@ -1888,27 +2165,32 @@ def comprehensive_scan(lat, lng, radius_km, sources=None, progress_callback=None
     progress_callback: function(stage, percent) لإظهار التقدم
     """
     sources = sources or {'mapbox': True}
-    
-    # 🟦 Mapbox (الأساسي - دائماً)
+
+    # 🟦 Mapbox (الأساسي) - فقط للفئات التي يدعمها فعلياً
+    # 🔧 إصلاح: كان يضرب Mapbox لكل 67 فئة، منها 34 لا يدعمها = طلبات ضائعة
     if progress_callback:
         progress_callback("🌐 جاري المسح من Mapbox...", 30)
-    
+
     mapbox_results = {}
     truncation_flags = {}
     for cat in CATEGORIES:
+        if cat not in MAPBOX_SUPPORTED:
+            continue  # سيُجلب من OSM بدلاً من ذلك
         feats = search_mapbox_multi(lat, lng, cat, radius_km)
         places = process(feats, lat, lng, radius_km)
         if places:
-            # نضيف source tag لكل محل
             for p in places:
                 p['source'] = 'mapbox'
             mapbox_results[cat] = places
             if len(places) >= 100:
                 truncation_flags[cat] = True
-    
-    # 🗺️ OpenStreetMap (إضافي)
+
+    # 🗺️ OpenStreetMap
+    # 🔧 إصلاح: OSM مجاني وبدون مفتاح، وهو المصدر الوحيد لـ34 فئة جديدة
+    #   (بنشري، تنجيد، لحام، نجارة، تبديل غاز، نسخ مفاتيح...).
+    #   لذلك نفعّله افتراضياً ما لم يُعطّله المستخدم صراحةً (osm=False).
     osm_results = {}
-    if sources.get('osm'):
+    if sources.get('osm', True):
         if progress_callback:
             progress_callback("🗺️ جاري المسح من OpenStreetMap...", 50)
         try:
@@ -1943,13 +2225,18 @@ def comprehensive_scan(lat, lng, radius_km, sources=None, progress_callback=None
         results = mapbox_results
     
     # ملخص المصادر
+    ratings = all_ratings_summary(results)
+    rated_total = sum(s['rated_count'] for s in ratings.values())
     source_stats = {
         'mapbox_total': sum(len(v) for v in mapbox_results.values()),
         'osm_total': sum(len(v) for v in osm_results.values()) if osm_results else 0,
         'foursquare_total': sum(len(v) for v in fsq_results.values()) if fsq_results else 0,
-        'sources_used': [k for k in ['mapbox', 'osm', 'foursquare'] if k == 'mapbox' or sources.get(k)],
+        'sources_used': [k for k in ['mapbox', 'osm', 'foursquare']
+                         if k == 'mapbox' or (k == 'osm' and sources.get('osm', True)) or sources.get(k)],
+        'ratings': ratings,            # 🆕 ملخص تقييمات لكل فئة
+        'rated_places_total': rated_total,  # 🆕 إجمالي المحلات المقيَّمة
     }
-    
+
     return results, truncation_flags, source_stats
 
 
@@ -3852,6 +4139,7 @@ def ai_chat(msg, analysis, pbc, lat, lng):
 الأنشطة في النطاق: {summary}
 المؤشرات: استثمار {analysis['investment_score']}/100 | فرصة {analysis['opportunity_score']}% | إشباع {analysis['saturation_score']}% | طلب {analysis['demand_score']}%
 المنطقة: {analysis['area_type']} | الحركة: {analysis['traffic_level']}
+نوع الشارع: {analysis.get('street_info', {}).get('category', 'غير معروف')} (تأثيره على الفرصة: {analysis.get('street_info', {}).get('opportunity_modifier', 0)}%)
 القرار: {analysis['decision']}{competitor_names}{best_acts}{fin_text}
 
 سؤال المستخدم: {msg}
@@ -3928,6 +4216,9 @@ def build_report_html(a, pbc, lat, lng, radius):
         <h2 style="color: {a['decision_color']};">{a['decision_emoji']} {a['decision']}</h2>
         <div class="verdict-score">نقاط الاستثمار: <b>{a['investment_score']}/100</b>
             &nbsp;|&nbsp; ثقة التحليل: <b style="color:{conf.get('color', '#94a3b8')}">{conf.get('score', 0)}% ({conf.get('level', '-')})</b>
+        </div>
+        <div class="verdict-score" style="margin-top:6px;">🛣️ نوع الشارع: <b>{a.get('street_info', {}).get('category', 'غير معروف')}</b>{(' (' + a['street_info']['name'] + ')') if a.get('street_info', {}).get('name') else ''}
+            &nbsp;|&nbsp; تأثيره على الفرصة: <b>{a.get('street_info', {}).get('opportunity_modifier', 0)}%</b>
         </div>
         <p class="verdict-text">{a.get('ai_recommendation') if a.get('ai_enhanced') else a['decision_summary']}</p>
     </div>
@@ -5139,6 +5430,19 @@ if analyze_btn:
     st.session_state.truncation_flags = truncation_flags
     st.session_state.source_stats = source_stats
 
+    # 🛣️ تحليل نوع الشارع (رئيسي/ثانوي/فرعي) — يؤثر على الفرصة
+    status.markdown('<p class="progress-msg">🛣️ 52% - تحليل نوع الشارع...</p>', unsafe_allow_html=True)
+    progress.progress(52)
+    try:
+        street_info = analyze_street_type(lat, lng)
+    except Exception:
+        street_info = {
+            'category': 'غير معروف', 'name': '', 'highway': '',
+            'opportunity_modifier': 0, 'nearby': [], 'confidence': 'منخفضة',
+            'explanation': 'تعذّر تحديد نوع الشارع.',
+        }
+    st.session_state.street_info = street_info
+
     status.markdown('<p class="progress-msg">📊 55% - تحليل البيانات...</p>', unsafe_allow_html=True)
     progress.progress(55)
 
@@ -5156,6 +5460,23 @@ if analyze_btn:
     a['dna'] = neighborhood_dna(pbc)
     # 🔴 إضافة truncation_flags للوصول لها في العرض والـ PDF
     a['truncation_flags'] = truncation_flags
+
+    # 🛣️ دمج تأثير نوع الشارع في النقاط
+    a['street_info'] = street_info
+    street_mod = street_info.get('opportunity_modifier', 0)
+    if street_mod:
+        base_inv = a.get('investment_score', 0)
+        base_opp = a.get('opportunity_score', 0)
+        # الشارع يعدّل النقاط نسبياً (سقف ±20%)
+        a['investment_score'] = int(max(0, min(100, base_inv + base_inv * street_mod / 100)))
+        a['opportunity_score'] = int(max(0, min(100, base_opp + base_opp * street_mod / 100)))
+        a['street_score_effect'] = {
+            'investment_before': base_inv,
+            'investment_after': a['investment_score'],
+            'opportunity_before': base_opp,
+            'opportunity_after': a['opportunity_score'],
+            'modifier': street_mod,
+        }
 
     status.markdown('<p class="progress-msg">🎯 65% - تصنيف الأنشطة...</p>', unsafe_allow_html=True)
     progress.progress(65)
@@ -5406,6 +5727,37 @@ else:
 <div style="color:#fecaca; font-size:14px; font-weight:700; margin-bottom:8px;">⚠️ تحذيرات السوق</div>
 {warnings_html}
 <div style="color:#94a3b8; font-size:11px; margin-top:8px;">💡 جرّب نطاقاً أصغر (2-3 كم) للحصول على بيانات أدق</div>
+</div>""", unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
+    # 🛣️ بطاقة تحليل نوع الشارع
+    # ═══════════════════════════════════════════════════════
+    si = a.get('street_info') or st.session_state.get('street_info')
+    if si and si.get('category'):
+        _cat = si['category']
+        _color = {'رئيسي': '#10b981', 'ثانوي': '#f59e0b', 'فرعي': '#f97316', 'غير معروف': '#64748b'}.get(_cat, '#64748b')
+        _icon = {'رئيسي': '🛣️', 'ثانوي': '🚦', 'فرعي': '🏘️', 'غير معروف': '❓'}.get(_cat, '🛣️')
+        _mod = si.get('opportunity_modifier', 0)
+        _mod_txt = f'+{_mod}%' if _mod > 0 else (f'{_mod}%' if _mod < 0 else 'بدون تأثير')
+        _mod_color = '#10b981' if _mod > 0 else ('#ef4444' if _mod < 0 else '#94a3b8')
+        _name_txt = f' — {si["name"]}' if si.get('name') else ''
+        _corner_txt = ' • قرب تقاطع ✚' if si.get('is_corner') else ''
+        _eff = a.get('street_score_effect')
+        _eff_html = ''
+        if _eff:
+            _eff_html = (
+                f'<div style="color:#cbd5e1; font-size:12px; margin-top:8px;">'
+                f'أثر الشارع على نقاط الاستثمار: <b>{_eff["investment_before"]}</b> ← '
+                f'<b style="color:{_mod_color};">{_eff["investment_after"]}</b> / 100</div>'
+            )
+        st.markdown(f"""<div style="background:rgba(255,255,255,0.04); border:1px solid {_color}; border-right:4px solid {_color}; border-radius:12px; padding:16px; margin-bottom:18px;">
+<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+  <div style="color:white; font-size:15px; font-weight:700;">{_icon} نوع الشارع: <span style="color:{_color};">{_cat}</span>{_name_txt}{_corner_txt}</div>
+  <div style="background:rgba(0,0,0,0.25); padding:4px 12px; border-radius:999px; color:{_mod_color}; font-size:13px; font-weight:700;">تأثير الفرصة: {_mod_txt}</div>
+</div>
+<div style="color:#cbd5e1; font-size:13px; margin-top:10px; line-height:1.7;">{si.get('explanation','')}</div>
+{_eff_html}
+<div style="color:#64748b; font-size:11px; margin-top:8px;">🔎 المصدر: OpenStreetMap • الثقة: {si.get('confidence','—')} • للدقة الكاملة تحقق ميدانياً من واجهة الشارع وعرضه.</div>
 </div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
