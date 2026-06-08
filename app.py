@@ -111,6 +111,196 @@ CATEGORIES = {
     # تعليم وديني
     "school": {"name": "مدارس", "icon": "🏫", "color": "#ca8a04", "group": "تعليم"},
     "mosque": {"name": "مساجد", "icon": "🕌", "color": "#65a30d", "group": "ديني"},
+    # ════════════════════════════════════════════════════════════
+    # 🆕 فئات جديدة - تصنيف هرمي (شخص/منزل/سيارة/جوال/خدمات)
+    # هذه الفئات تعتمد بشكل رئيسي على OSM (Mapbox لا يدعمها)
+    # ════════════════════════════════════════════════════════════
+    # 🏠 منزل - صيانة
+    "plumber": {"name": "سباك", "icon": "🔧", "color": "#0284c7", "group": "منزل"},
+    "electrician": {"name": "كهربائي", "icon": "⚡", "color": "#facc15", "group": "منزل"},
+    "carpenter": {"name": "نجار", "icon": "🪚", "color": "#92400e", "group": "منزل"},
+    "metalworker": {"name": "ورشة لحام", "icon": "🔥", "color": "#dc2626", "group": "منزل"},
+    "ac_repair": {"name": "صيانة تكييف", "icon": "❄️", "color": "#0ea5e9", "group": "منزل"},
+    "painter": {"name": "دهان وصبغ", "icon": "🎨", "color": "#a855f7", "group": "منزل"},
+    # 🏠 منزل - أثاث وديكور
+    "furniture": {"name": "أثاث منزلي", "icon": "🛋️", "color": "#7c3aed", "group": "منزل"},
+    "lighting": {"name": "إضاءة", "icon": "💡", "color": "#eab308", "group": "منزل"},
+    "curtains": {"name": "ستائر ومفروشات", "icon": "🪟", "color": "#be185d", "group": "منزل"},
+    # 🏠 منزل - خدمات
+    "gas_supply": {"name": "تبديل غاز", "icon": "🔥", "color": "#f97316", "group": "منزل"},
+    "locksmith": {"name": "نسخ مفاتيح", "icon": "🔑", "color": "#78716c", "group": "منزل"},
+    "cleaning": {"name": "خدمات نظافة", "icon": "🧹", "color": "#06b6d4", "group": "منزل"},
+    "pest_control": {"name": "مكافحة حشرات", "icon": "🐜", "color": "#84cc16", "group": "منزل"},
+    # 🚗 سيارات - تكميلي
+    "tyre_shop": {"name": "بنشري", "icon": "🛞", "color": "#1f2937", "group": "سيارات"},
+    "upholstery": {"name": "تنجيد سيارات", "icon": "💺", "color": "#7c2d12", "group": "سيارات"},
+    "car_tinting": {"name": "تظليل سيارات", "icon": "🪟", "color": "#374151", "group": "سيارات"},
+    "auto_parts": {"name": "قطع غيار", "icon": "🔩", "color": "#525b76", "group": "سيارات"},
+    "oil_change": {"name": "تغيير زيت", "icon": "🛢️", "color": "#451a03", "group": "سيارات"},
+    # 📱 جوال وإلكترونيات
+    "mobile_repair": {"name": "صيانة جوال", "icon": "📱", "color": "#2563eb", "group": "إلكترونيات"},
+    "mobile_accessories": {"name": "إكسسوارات جوال", "icon": "🎧", "color": "#9333ea", "group": "إلكترونيات"},
+    # 👕 ملابس متخصصة
+    "tailor": {"name": "خياط", "icon": "🧵", "color": "#be123c", "group": "ملابس"},
+    "abaya_shop": {"name": "محل عبايات", "icon": "🧕", "color": "#1e293b", "group": "ملابس"},
+    "shoe_shop": {"name": "أحذية", "icon": "👟", "color": "#7c3aed", "group": "ملابس"},
+    # 🍞 طعام متخصص
+    "bakery": {"name": "مخبز", "icon": "🍞", "color": "#d97706", "group": "طعام"},
+    "sweets": {"name": "حلويات", "icon": "🍰", "color": "#ec4899", "group": "طعام"},
+    "butcher": {"name": "ملحمة / دجاج", "icon": "🥩", "color": "#991b1b", "group": "طعام"},
+    "vegetables": {"name": "خضار وفواكه", "icon": "🥬", "color": "#16a34a", "group": "طعام"},
+    # 💇 عناية شخصية
+    "barber": {"name": "حلاق رجالي", "icon": "✂️", "color": "#1f2937", "group": "عناية"},
+    # 🎓 تعليم متخصص
+    "quran_school": {"name": "تحفيظ قرآن", "icon": "📖", "color": "#15803d", "group": "تعليم"},
+    "training_center": {"name": "مركز تدريب", "icon": "🎓", "color": "#0e7490", "group": "تعليم"},
+    # 🏥 صحة متخصصة
+    "dentist": {"name": "عيادة أسنان", "icon": "🦷", "color": "#0891b2", "group": "صحة"},
+    "medical_lab": {"name": "مختبر طبي", "icon": "🧪", "color": "#7c3aed", "group": "صحة"},
+    # 🎮 ترفيه إضافي
+    "playground": {"name": "ملاعب", "icon": "⚽", "color": "#16a34a", "group": "ترفيه"},
+    "game_center": {"name": "مركز ألعاب", "icon": "🎮", "color": "#a855f7", "group": "ترفيه"},
+}
+
+# ════════════════════════════════════════════════════════════════
+# 🆕 التصنيف الهرمي - أساسي / احتياج / تكميلي حسب القطاع
+# ════════════════════════════════════════════════════════════════
+HIERARCHICAL_NEEDS = {
+    'person_food': {
+        'name': '🍽️ طعام وشراب',
+        'sector': 'الشخص',
+        'tiers': {
+            'essential': ['grocery'],
+            'needed': ['restaurant', 'bakery', 'butcher', 'vegetables'],
+            'extra': ['cafe', 'fast_food', 'sweets']
+        }
+    },
+    'person_clothing': {
+        'name': '👕 ملابس',
+        'sector': 'الشخص',
+        'tiers': {
+            'essential': ['clothing_store'],
+            'needed': ['tailor', 'shoe_shop'],
+            'extra': ['abaya_shop']
+        }
+    },
+    'person_health': {
+        'name': '💊 صحة',
+        'sector': 'الشخص',
+        'tiers': {
+            'essential': ['pharmacy'],
+            'needed': ['clinic', 'hospital', 'medical_lab', 'dentist'],
+            'extra': ['beauty_salon']
+        }
+    },
+    'person_education': {
+        'name': '🎓 تعليم',
+        'sector': 'الشخص',
+        'tiers': {
+            'essential': ['school'],
+            'needed': ['quran_school', 'training_center'],
+            'extra': ['library']
+        }
+    },
+    'person_care': {
+        'name': '💇 عناية شخصية',
+        'sector': 'الشخص',
+        'tiers': {
+            'essential': [],
+            'needed': ['barber', 'beauty_salon'],
+            'extra': []
+        }
+    },
+    'home_maintenance': {
+        'name': '🔧 صيانة منزل',
+        'sector': 'المنزل',
+        'tiers': {
+            'essential': [],
+            'needed': ['plumber', 'electrician', 'carpenter'],
+            'extra': ['metalworker', 'ac_repair', 'painter']
+        }
+    },
+    'home_furniture': {
+        'name': '🛋️ أثاث وديكور',
+        'sector': 'المنزل',
+        'tiers': {
+            'essential': [],
+            'needed': ['furniture'],
+            'extra': ['lighting', 'curtains']
+        }
+    },
+    'home_services': {
+        'name': '🏠 خدمات منزلية',
+        'sector': 'المنزل',
+        'tiers': {
+            'essential': ['gas_supply'],
+            'needed': ['locksmith', 'cleaning'],
+            'extra': ['pest_control']
+        }
+    },
+    'car_essential': {
+        'name': '⛽ سيارة - أساسي',
+        'sector': 'السيارة',
+        'tiers': {
+            'essential': ['fuel'],
+            'needed': ['auto_repair', 'tyre_shop', 'oil_change'],
+            'extra': []
+        }
+    },
+    'car_extras': {
+        'name': '🚗 سيارة - تكميلي',
+        'sector': 'السيارة',
+        'tiers': {
+            'essential': [],
+            'needed': ['auto_parts'],
+            'extra': ['car_wash', 'upholstery', 'car_tinting', 'car_rental']
+        }
+    },
+    'mobile': {
+        'name': '📱 جوال وإلكترونيات',
+        'sector': 'الإلكترونيات',
+        'tiers': {
+            'essential': [],
+            'needed': ['mobile_repair'],
+            'extra': ['mobile_accessories', 'electronics_store']
+        }
+    },
+    'finance': {
+        'name': '💰 خدمات مالية',
+        'sector': 'مالي',
+        'tiers': {
+            'essential': ['atm'],
+            'needed': ['bank'],
+            'extra': []
+        }
+    },
+    'religious': {
+        'name': '🕌 ديني',
+        'sector': 'مجتمعي',
+        'tiers': {
+            'essential': ['mosque'],
+            'needed': [],
+            'extra': []
+        }
+    },
+    'entertainment': {
+        'name': '🎭 ترفيه ونمط حياة',
+        'sector': 'الترفيه',
+        'tiers': {
+            'essential': [],
+            'needed': ['park', 'playground'],
+            'extra': ['cinema', 'fitness_center', 'shopping', 'game_center', 'museum', 'tourist_attraction']
+        }
+    },
+    'hospitality': {
+        'name': '🏨 سفر وضيافة',
+        'sector': 'السفر',
+        'tiers': {
+            'essential': [],
+            'needed': ['hotel'],
+            'extra': ['car_rental', 'tourist_attraction']
+        }
+    },
 }
 
 ACTIVITY_TYPES = {
@@ -1317,28 +1507,450 @@ def score_to_level(score, reverse=False):
             return {'level': 'ضعيف', 'icon': '🔴', 'color': '#ef4444', 'meaning': 'مخاطرة عالية'}
 
 
-def comprehensive_scan(lat, lng, radius_km):
+# ════════════════════════════════════════════════════════════════
+# 🗺️ OpenStreetMap (Overpass API) Integration
+# ════════════════════════════════════════════════════════════════
+
+# تحويل فئات Mapbox → OSM tags
+MAPBOX_TO_OSM = {
+    'restaurant': [('amenity', 'restaurant')],
+    'cafe': [('amenity', 'cafe')],
+    'fast_food': [('amenity', 'fast_food')],
+    'grocery': [('shop', 'supermarket'), ('shop', 'convenience'), ('shop', 'grocery')],
+    'pharmacy': [('amenity', 'pharmacy')],
+    'clinic': [('amenity', 'clinic'), ('healthcare', 'clinic')],
+    'hospital': [('amenity', 'hospital')],
+    'school': [('amenity', 'school'), ('amenity', 'kindergarten')],
+    'mosque': [('amenity', 'place_of_worship'), ('religion', 'muslim')],
+    'fuel': [('amenity', 'fuel')],
+    'bank': [('amenity', 'bank')],
+    'atm': [('amenity', 'atm')],
+    'hotel': [('tourism', 'hotel'), ('tourism', 'guest_house')],
+    'tourist_attraction': [('tourism', 'attraction'), ('tourism', 'museum')],
+    'museum': [('tourism', 'museum')],
+    'park': [('leisure', 'park'), ('leisure', 'garden')],
+    'fitness_center': [('leisure', 'fitness_centre'), ('leisure', 'sports_centre')],
+    'shopping': [('shop', 'mall'), ('shop', 'department_store')],
+    'clothing_store': [('shop', 'clothes')],
+    'electronics_store': [('shop', 'electronics')],
+    'auto_repair': [('shop', 'car_repair'), ('amenity', 'car_repair')],
+    'car_wash': [('amenity', 'car_wash')],
+    'car_rental': [('amenity', 'car_rental')],
+    'beauty_salon': [('shop', 'beauty'), ('shop', 'hairdresser')],
+    'cinema': [('amenity', 'cinema')],
+    'library': [('amenity', 'library')],
+    'parking': [('amenity', 'parking')],
+    'services': [],  # عام جداً
+    # 🆕 الفئات الجديدة - معظمها مدعومة فقط في OSM
+    # منزل - صيانة
+    'plumber': [('craft', 'plumber'), ('shop', 'plumbing')],
+    'electrician': [('craft', 'electrician'), ('shop', 'electrical')],
+    'carpenter': [('craft', 'carpenter')],
+    'metalworker': [('craft', 'metal_construction'), ('craft', 'blacksmith'), ('craft', 'welder')],
+    'ac_repair': [('craft', 'hvac')],
+    'painter': [('craft', 'painter')],
+    # منزل - أثاث
+    'furniture': [('shop', 'furniture')],
+    'lighting': [('shop', 'lighting')],
+    'curtains': [('shop', 'curtain'), ('shop', 'interior_decoration')],
+    # منزل - خدمات
+    'gas_supply': [('shop', 'gas')],
+    'locksmith': [('shop', 'locksmith'), ('craft', 'locksmith')],
+    'cleaning': [('office', 'cleaning'), ('shop', 'cleaning')],
+    'pest_control': [('shop', 'pest_control')],
+    # سيارات
+    'tyre_shop': [('shop', 'tyres')],
+    'upholstery': [('craft', 'upholsterer'), ('shop', 'upholstery')],
+    'car_tinting': [('shop', 'car_repair'), ('service', 'tinting')],
+    'auto_parts': [('shop', 'car_parts')],
+    'oil_change': [('shop', 'car_repair'), ('service', 'oil_change')],
+    # جوال
+    'mobile_repair': [('shop', 'mobile_phone'), ('craft', 'electronics_repair')],
+    'mobile_accessories': [('shop', 'mobile_phone')],
+    # ملابس
+    'tailor': [('shop', 'tailor'), ('craft', 'tailor'), ('craft', 'dressmaker')],
+    'abaya_shop': [('shop', 'clothes')],  # لا توجد فئة محددة
+    'shoe_shop': [('shop', 'shoes')],
+    # طعام متخصص
+    'bakery': [('shop', 'bakery'), ('shop', 'pastry')],
+    'sweets': [('shop', 'confectionery'), ('shop', 'sweets')],
+    'butcher': [('shop', 'butcher')],
+    'vegetables': [('shop', 'greengrocer'), ('shop', 'farm')],
+    # عناية شخصية
+    'barber': [('shop', 'hairdresser'), ('craft', 'hairdresser')],
+    # تعليم
+    'quran_school': [('amenity', 'school')],  # تحفيظ - يصعب التمييز
+    'training_center': [('amenity', 'training'), ('office', 'educational_institution')],
+    # صحة
+    'dentist': [('amenity', 'dentist'), ('healthcare', 'dentist')],
+    'medical_lab': [('healthcare', 'laboratory')],
+    # ترفيه
+    'playground': [('leisure', 'playground'), ('leisure', 'pitch')],
+    'game_center': [('leisure', 'amusement_arcade'), ('leisure', 'adult_gaming_centre')],
+}
+
+
+def search_osm(lat, lng, radius_km, cats_to_search=None):
+    """
+    البحث في OpenStreetMap عبر Overpass API
+    مجاني تماماً - بدون API key
+    يجرب عدة mirrors لتجاوز IP restrictions
+    يرجع dict {cat: [{name, lat, lng, dist, source: 'osm'}]}
+    """
+    cats_to_search = cats_to_search or list(MAPBOX_TO_OSM.keys())
+    radius_m = int(radius_km * 1000)
+    
+    query_parts = []
+    for cat in cats_to_search:
+        tags = MAPBOX_TO_OSM.get(cat, [])
+        for tag_key, tag_val in tags:
+            query_parts.append(f'  node["{tag_key}"="{tag_val}"](around:{radius_m},{lat},{lng});')
+            query_parts.append(f'  way["{tag_key}"="{tag_val}"](around:{radius_m},{lat},{lng});')
+    
+    if not query_parts:
+        return {}
+    
+    query = f"""[out:json][timeout:25];
+(
+{chr(10).join(query_parts)}
+);
+out center body;"""
+    
+    # 🔴 نجرب عدة mirrors لـ Overpass (بعضها يحظر بعض الـ IPs)
+    mirrors = [
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+        'https://overpass.openstreetmap.ru/api/interpreter',
+        'https://overpass.private.coffee/api/interpreter',
+    ]
+    headers = {'User-Agent': 'GBI-Investment-Analyzer/1.0'}
+    
+    data = None
+    for mirror in mirrors:
+        try:
+            r = requests.post(mirror, data={'data': query}, headers=headers, timeout=30)
+            if r.status_code == 200:
+                data = r.json()
+                break
+        except Exception:
+            continue
+    
+    if not data:
+        return {}
+    
+    elements = data.get('elements', [])
+    
+    # نوزع النتائج على الفئات
+    results = {cat: [] for cat in cats_to_search}
+    
+    for el in elements:
+        tags = el.get('tags', {})
+        name = tags.get('name:ar') or tags.get('name:en') or tags.get('name', '')
+        if not name:
+            continue
+        
+        # نحدد الإحداثيات (node = lat/lon مباشر، way = center)
+        if el.get('type') == 'node':
+            plat = el.get('lat')
+            plng = el.get('lon')
+        elif el.get('type') == 'way':
+            center = el.get('center', {})
+            plat = center.get('lat')
+            plng = center.get('lon')
+        else:
+            continue
+        
+        if not (plat and plng):
+            continue
+        
+        # نحدد إلى أي فئة ينتمي
+        matched_cat = None
+        for cat in cats_to_search:
+            for tag_key, tag_val in MAPBOX_TO_OSM.get(cat, []):
+                if tags.get(tag_key) == tag_val:
+                    matched_cat = cat
+                    break
+            if matched_cat:
+                break
+        
+        if not matched_cat:
+            continue
+        
+        d = dist_km(lat, lng, plat, plng)
+        if d <= radius_km:
+            results[matched_cat].append({
+                'name': name,
+                'addr': tags.get('addr:full', ''),
+                'dist': d,
+                'lat': plat,
+                'lng': plng,
+                'source': 'osm',
+            })
+    
+    # ترتيب
+    for cat in results:
+        results[cat].sort(key=lambda x: x['dist'])
+    
+    return results
+
+
+# ════════════════════════════════════════════════════════════════
+# 🟨 Foursquare Places API Integration
+# ════════════════════════════════════════════════════════════════
+
+# تحويل فئات Mapbox → Foursquare category IDs
+MAPBOX_TO_FOURSQUARE = {
+    'restaurant': '13065',
+    'cafe': '13035',
+    'fast_food': '13145',
+    'grocery': '17069',
+    'pharmacy': '17091',
+    'clinic': '15014',
+    'hospital': '15014',
+    'school': '12058',
+    'fuel': '19007',
+    'bank': '11045',
+    'atm': '11044',
+    'hotel': '19014',
+    'tourist_attraction': '16041',
+    'museum': '10027',
+    'park': '16032',
+    'fitness_center': '18021',
+    'shopping': '17114',
+    'clothing_store': '17029',
+    'beauty_salon': '11062',
+    'cinema': '10024',
+    'library': '12080',
+}
+
+
+def search_foursquare(lat, lng, radius_km, api_key, cats_to_search=None):
+    """
+    البحث في Foursquare Places API
+    مجاني حتى 1000 طلب/يوم - يحتاج API key مجاني
+    يضيف rating ⭐ + popularity للمحلات
+    """
+    if not api_key:
+        return {}
+    
+    cats_to_search = cats_to_search or list(MAPBOX_TO_FOURSQUARE.keys())
+    radius_m = int(radius_km * 1000)
+    headers = {
+        'Authorization': api_key,
+        'Accept': 'application/json',
+    }
+    
+    results = {cat: [] for cat in cats_to_search}
+    
+    # طلب واحد لكل فئة (Foursquare لا يدعم multi-category)
+    for cat in cats_to_search:
+        fsq_cat = MAPBOX_TO_FOURSQUARE.get(cat)
+        if not fsq_cat:
+            continue
+        
+        try:
+            r = requests.get(
+                'https://api.foursquare.com/v3/places/search',
+                params={
+                    'll': f'{lat},{lng}',
+                    'radius': radius_m,
+                    'categories': fsq_cat,
+                    'limit': 50,
+                },
+                headers=headers,
+                timeout=10
+            )
+            if r.status_code != 200:
+                continue
+            data = r.json()
+        except Exception:
+            continue
+        
+        for place in data.get('results', []):
+            name = place.get('name', '')
+            if not name:
+                continue
+            loc = place.get('geocodes', {}).get('main', {})
+            plat = loc.get('latitude')
+            plng = loc.get('longitude')
+            if not (plat and plng):
+                continue
+            
+            d = dist_km(lat, lng, plat, plng)
+            if d > radius_km:
+                continue
+            
+            # Foursquare rating (6-10 scale → نحول لـ 0-5)
+            fsq_rating = place.get('rating')  # 6-10
+            rating_5 = (fsq_rating / 2) if fsq_rating else None
+            
+            results[cat].append({
+                'name': name,
+                'addr': place.get('location', {}).get('formatted_address', ''),
+                'dist': d,
+                'lat': plat,
+                'lng': plng,
+                'source': 'foursquare',
+                'rating': rating_5,
+                'fsq_id': place.get('fsq_id'),
+            })
+    
+    return results
+
+
+# ════════════════════════════════════════════════════════════════
+# 🔄 دمج النتائج من مصادر متعددة
+# ════════════════════════════════════════════════════════════════
+def merge_sources(*results_dicts):
+    """
+    يدمج نتائج من عدة مصادر مع dedup ذكي
+    Dedup بـ: (الاسم المُطبع + قرب الإحداثيات 50m)
+    """
+    merged = {}
+    all_cats = set()
+    for d in results_dicts:
+        all_cats.update(d.keys())
+    
+    for cat in all_cats:
+        combined = []
+        seen_names = set()
+        seen_coords = []  # [(lat, lng, place_dict)]
+        
+        for d in results_dicts:
+            for place in d.get(cat, []):
+                name_norm = (place.get('name') or '').strip().lower()
+                if not name_norm:
+                    continue
+                
+                # Dedup بالاسم
+                if name_norm in seen_names:
+                    # نجد المحل الموجود ونعزز بياناته
+                    for sp in combined:
+                        if (sp.get('name') or '').strip().lower() == name_norm:
+                            # ندمج المصادر
+                            existing_sources = sp.get('sources', [sp.get('source', 'unknown')])
+                            new_source = place.get('source', 'unknown')
+                            if new_source not in existing_sources:
+                                existing_sources.append(new_source)
+                            sp['sources'] = existing_sources
+                            # نحدث rating لو موجود في الجديد ومش في القديم
+                            if place.get('rating') and not sp.get('rating'):
+                                sp['rating'] = place['rating']
+                                sp['rating_source'] = new_source
+                            break
+                    continue
+                
+                # Dedup بالإحداثيات (50m)
+                plat = place.get('lat')
+                plng = place.get('lng')
+                is_dup = False
+                if plat and plng:
+                    for slat, slng, sp in seen_coords:
+                        if abs(plat - slat) < 0.0005 and abs(plng - slng) < 0.0005:
+                            # نعزز بدلاً من إضافة
+                            existing_sources = sp.get('sources', [sp.get('source', 'unknown')])
+                            new_source = place.get('source', 'unknown')
+                            if new_source not in existing_sources:
+                                existing_sources.append(new_source)
+                            sp['sources'] = existing_sources
+                            if place.get('rating') and not sp.get('rating'):
+                                sp['rating'] = place['rating']
+                                sp['rating_source'] = new_source
+                            is_dup = True
+                            break
+                if is_dup:
+                    continue
+                
+                # محل جديد
+                place_copy = dict(place)
+                place_copy['sources'] = [place.get('source', 'unknown')]
+                combined.append(place_copy)
+                seen_names.add(name_norm)
+                if plat and plng:
+                    seen_coords.append((plat, plng, place_copy))
+        
+        combined.sort(key=lambda x: x.get('dist', 999))
+        if combined:
+            merged[cat] = combined
+    
+    return merged
+
+
+def comprehensive_scan(lat, lng, radius_km, sources=None, progress_callback=None):
     """
     🔴 فحص شامل محسّن:
     - بحث متعدد بـ proximity points
+    - دمج من مصادر متعددة (Mapbox + OSM + Foursquare)
     - dedup صارم
     - كشف اقتطاع API
+    
+    sources: dict {mapbox: True, osm: bool, foursquare: bool, foursquare_key: str, ...}
+    progress_callback: function(stage, percent) لإظهار التقدم
     """
-    results = {}
+    sources = sources or {'mapbox': True}
+    
+    # 🟦 Mapbox (الأساسي - دائماً)
+    if progress_callback:
+        progress_callback("🌐 جاري المسح من Mapbox...", 30)
+    
+    mapbox_results = {}
     truncation_flags = {}
     for cat in CATEGORIES:
         feats = search_mapbox_multi(lat, lng, cat, radius_km)
         places = process(feats, lat, lng, radius_km)
         if places:
-            results[cat] = places
-            # 🔴 عتبة اقتطاع محدّثة:
-            # البحث المتعدد (5 نقاط × 25) ينتج تقريباً 60-120 نتيجة بعد dedup
-            # لذا الاقتطاع الفعلي يحدث عند 100+ (وصل الحد الأقصى للبحث المتعدد)
-            # عند 60-100 = البيانات شبه كاملة
-            # عند < 60 = البيانات كاملة على الأرجح
+            # نضيف source tag لكل محل
+            for p in places:
+                p['source'] = 'mapbox'
+            mapbox_results[cat] = places
             if len(places) >= 100:
                 truncation_flags[cat] = True
-    return results, truncation_flags
+    
+    # 🗺️ OpenStreetMap (إضافي)
+    osm_results = {}
+    if sources.get('osm'):
+        if progress_callback:
+            progress_callback("🗺️ جاري المسح من OpenStreetMap...", 50)
+        try:
+            osm_results = search_osm(lat, lng, radius_km)
+        except Exception:
+            osm_results = {}
+    
+    # 🟨 Foursquare (إضافي + تقييمات)
+    fsq_results = {}
+    if sources.get('foursquare') and sources.get('foursquare_key'):
+        if progress_callback:
+            progress_callback("🟨 جاري المسح من Foursquare...", 65)
+        try:
+            fsq_results = search_foursquare(lat, lng, radius_km, sources['foursquare_key'])
+        except Exception:
+            fsq_results = {}
+    
+    # 🔄 الدمج
+    if progress_callback:
+        progress_callback("🔄 جاري دمج النتائج...", 80)
+    
+    if osm_results or fsq_results:
+        results = merge_sources(mapbox_results, osm_results, fsq_results)
+        # إعادة حساب الاقتطاع بعد الدمج
+        truncation_flags = {}
+        for cat, places in results.items():
+            # نعتبر الفئة مقصوصة فقط لو معظم النتائج من Mapbox (لم يضف OSM/FSQ شي)
+            mapbox_count = sum(1 for p in places if 'mapbox' in p.get('sources', []))
+            if mapbox_count >= 100 and len(places) >= 100:
+                truncation_flags[cat] = True
+    else:
+        results = mapbox_results
+    
+    # ملخص المصادر
+    source_stats = {
+        'mapbox_total': sum(len(v) for v in mapbox_results.values()),
+        'osm_total': sum(len(v) for v in osm_results.values()) if osm_results else 0,
+        'foursquare_total': sum(len(v) for v in fsq_results.values()) if fsq_results else 0,
+        'sources_used': [k for k in ['mapbox', 'osm', 'foursquare'] if k == 'mapbox' or sources.get(k)],
+    }
+    
+    return results, truncation_flags, source_stats
 
 
 # ============================================================================
@@ -4064,8 +4676,8 @@ with sc3:
 # ============================================================================
 # [الدفعة 6] الخيارات المتقدمة + النموذج التفاعلي
 # ============================================================================
-with st.expander("⚙️ الخيارات المتقدمة - النشاط + البيانات المالية + الصور"):
-    tab_act, tab_money, tab_img = st.tabs(["🎯 النشاط المستهدف", "💰 البيانات المالية", "📸 صور الموقع"])
+with st.expander("⚙️ الخيارات المتقدمة - النشاط + البيانات المالية + الصور + مصادر البيانات"):
+    tab_act, tab_money, tab_img, tab_sources = st.tabs(["🎯 النشاط المستهدف", "💰 البيانات المالية", "📸 صور الموقع", "🗂️ مصادر البيانات"])
 
     with tab_act:
         target_options = [("", "🤖 اقترح الأنسب تلقائياً (بناء على تحليل السوق)")]
@@ -4120,6 +4732,123 @@ with st.expander("⚙️ الخيارات المتقدمة - النشاط + ال
         if uploaded_images:
             st.success(f"✅ {len(uploaded_images)} صورة جاهزة")
         st.session_state.uploaded_images = uploaded_images or []
+
+    # ════════════════════════════════════════════════════════════
+    # 🗂️ tab مصادر البيانات
+    # ════════════════════════════════════════════════════════════
+    with tab_sources:
+        st.markdown("""<div style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.3); border-radius:12px; padding:14px; margin-bottom:16px;">
+<div style="color:#93c5fd; font-weight:600; font-size:14px; margin-bottom:6px;">💡 كيف تعمل مصادر البيانات؟</div>
+<div style="color:#cbd5e1; font-size:13px; line-height:1.6;">
+أضف مصادر إضافية لـ <b>توسيع نطاق التحليل</b> وزيادة دقته.<br>
+كل مصدر يضيف وقت إضافي لكن يكشف محلات أكثر و(أحياناً) تقييمات.
+</div>
+</div>""", unsafe_allow_html=True)
+        
+        st.markdown('<div style="color:#86efac; font-size:14px; font-weight:700; margin:14px 0 8px 0;">🆓 مصادر مجانية</div>', unsafe_allow_html=True)
+        
+        # Mapbox - الافتراضي (مفعّل دائماً)
+        st.markdown("""<div style="background:rgba(16,185,129,0.10); border:1px solid #10b981; border-radius:10px; padding:12px; margin-bottom:10px;">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div>
+<div style="color:white; font-weight:700; font-size:14px;">✅ Mapbox (الأساسي)</div>
+<div style="color:#94a3b8; font-size:12px;">مفعّل دائماً • مجاني • ⏱️ ~20-30 ثانية</div>
+</div>
+<div style="background:rgba(16,185,129,0.2); color:#10b981; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:600;">مفعّل</div>
+</div>
+</div>""", unsafe_allow_html=True)
+        
+        # OpenStreetMap (مجاني)
+        use_osm = st.checkbox(
+            "🗺️ **OpenStreetMap (Overpass)** - يكشف محلات إضافية لم يجدها Mapbox",
+            value=False,
+            key="use_osm",
+            help="مجاني تماماً • لا يحتاج API key • قد يضيف 15-30% محلات إضافية • ⏱️ +20-40 ثانية"
+        )
+        if use_osm:
+            st.caption("✅ سيتم الاستعلام من OpenStreetMap Overpass API")
+        
+        # Foursquare (مجاني مع API key)
+        st.markdown('<div style="margin-top:12px;"></div>', unsafe_allow_html=True)
+        fsq_api_key = st.text_input(
+            "🔑 Foursquare API Key (اختياري)",
+            value="",
+            type="password",
+            key="fsq_api_key",
+            help="مجاني حتى 1000 طلب/يوم • يضيف تقييمات لبعض المحلات • سجل في: foursquare.com/developers"
+        )
+        use_foursquare = bool(fsq_api_key.strip())
+        if use_foursquare:
+            st.caption("✅ Foursquare API key موجود - سيتم استخدامه")
+        else:
+            st.caption("⚪ Foursquare غير مفعّل (يحتاج API key مجاني)")
+        
+        st.markdown('<div style="color:#fbbf24; font-size:14px; font-weight:700; margin:20px 0 8px 0;">💰 مصادر مدفوعة (للتقييمات الكاملة من Google)</div>', unsafe_allow_html=True)
+        
+        # Outscraper
+        outscraper_api_key = st.text_input(
+            "🔑 Outscraper API Key (اختياري - مدفوع)",
+            value="",
+            type="password",
+            key="outscraper_api_key",
+            help="$3-5 لكل 1000 طلب • تقييمات Google كاملة + مراجعات • سجل في: outscraper.com"
+        )
+        use_outscraper = bool(outscraper_api_key.strip())
+        if use_outscraper:
+            st.caption("✅ Outscraper API key موجود - سيُستخدم لتعزيز تقييمات النشاط المختار (~$0.05/تحليل)")
+        else:
+            st.caption("⚪ Outscraper غير مفعّل (يحتاج اشتراك مدفوع)")
+        
+        # Apify
+        apify_api_key = st.text_input(
+            "🔑 Apify API Token (اختياري - $5 رصيد مجاني)",
+            value="",
+            type="password",
+            key="apify_api_key",
+            help="$5 رصيد شهري مجاني • Google Maps Scraper • سجل في: apify.com"
+        )
+        use_apify = bool(apify_api_key.strip())
+        if use_apify:
+            st.caption("✅ Apify token موجود - سيُستخدم كخيار ثانوي للتقييمات")
+        else:
+            st.caption("⚪ Apify غير مفعّل")
+        
+        # ملخص المصادر المختارة + الوقت المتوقع
+        active_count = 1  # Mapbox
+        time_estimate = 30  # base
+        if use_osm:
+            active_count += 1
+            time_estimate += 30
+        if use_foursquare:
+            active_count += 1
+            time_estimate += 15
+        if use_outscraper:
+            active_count += 1
+            time_estimate += 45
+        if use_apify:
+            active_count += 1
+            time_estimate += 30
+        
+        st.markdown(f"""<div style="background:rgba(168,85,247,0.08); border:1px solid #a855f7; border-radius:10px; padding:14px; margin-top:16px;">
+<div style="color:#c4b5fd; font-size:13px; font-weight:600;">📊 ملخص الإعدادات</div>
+<div style="color:#cbd5e1; font-size:13px; margin-top:6px; line-height:1.8;">
+🗂️ المصادر المفعّلة: <b style="color:white;">{active_count}</b><br>
+⏱️ الوقت المتوقع: <b style="color:white;">~{time_estimate} ثانية</b><br>
+💡 <span style="color:#94a3b8; font-size:12px;">أكثر المصادر = أدق التحليل (لكن أبطأ)</span>
+</div>
+</div>""", unsafe_allow_html=True)
+        
+        # نخزن في session_state
+        st.session_state['data_sources'] = {
+            'mapbox': True,
+            'osm': use_osm,
+            'foursquare': use_foursquare,
+            'foursquare_key': fsq_api_key.strip() if fsq_api_key else '',
+            'outscraper': use_outscraper,
+            'outscraper_key': outscraper_api_key.strip() if outscraper_api_key else '',
+            'apify': use_apify,
+            'apify_key': apify_api_key.strip() if apify_api_key else '',
+        }
 
 
 # ============================================================================
@@ -4389,17 +5118,26 @@ if analyze_btn:
     progress.progress(12)
     gov_info = find_governorate_by_coords(lat, lng)
 
-    # المسح الشامل
-    status.markdown('<p class="progress-msg">🌐 25% - مسح المحلات (33 فئة × 5 نقاط)...</p>', unsafe_allow_html=True)
-    progress.progress(25)
-    pbc, truncation_flags = comprehensive_scan(lat, lng, radius)
+    # المسح الشامل من المصادر المختارة
+    sources = st.session_state.get('data_sources', {'mapbox': True})
+    
+    def _progress_update(msg, pct):
+        try:
+            status.markdown(f'<p class="progress-msg">{msg}</p>', unsafe_allow_html=True)
+            progress.progress(pct)
+        except Exception:
+            pass
+    
+    _progress_update("🌐 25% - بدء مسح المحلات...", 25)
+    pbc, truncation_flags, source_stats = comprehensive_scan(lat, lng, radius, sources=sources, progress_callback=_progress_update)
     if not pbc:
         progress.empty(); status.empty()
         st.warning("⚠️ لم نعثر على محلات في النطاق المحدد. جرّب نطاقاً أوسع.")
         st.stop()
     
-    # نخزن truncation_flags في session للاستخدام لاحقاً
+    # نخزن truncation_flags و source_stats في session للاستخدام لاحقاً
     st.session_state.truncation_flags = truncation_flags
+    st.session_state.source_stats = source_stats
 
     status.markdown('<p class="progress-msg">📊 55% - تحليل البيانات...</p>', unsafe_allow_html=True)
     progress.progress(55)
@@ -4471,14 +5209,14 @@ if analyze_btn:
 
     # AI enhancement
     if AI_AVAILABLE:
-        status.markdown('<p class="progress-msg">✨ 88% - تحسين عبر AI...</p>', unsafe_allow_html=True)
+        status.markdown('<p class="progress-msg">✨ 88% - معالجة التحليل النهائي...</p>', unsafe_allow_html=True)
         progress.progress(88)
         a = ai_enhance(a, pbc, lat, lng)
 
     # تحليل النشاط المخصص
     custom_act = st.session_state.get('custom_activity', '').strip()
     if custom_act:
-        status.markdown(f'<p class="progress-msg">✍️ 92% - تحليل نشاطك: {custom_act[:30]}...</p>',
+        status.markdown(f'<p class="progress-msg">✍️ 92% - معالجة نشاطك المخصص...</p>',
                         unsafe_allow_html=True)
         progress.progress(92)
         a['custom_activity_analysis'] = analyze_custom_activity(custom_act, a, pbc, lat, lng)
@@ -4593,6 +5331,25 @@ else:
         </div>
     </div>"""
     st.markdown(teaser_banner, unsafe_allow_html=True)
+    
+    # 🔴 ملخص المصادر المستخدمة (إذا أكثر من Mapbox)
+    source_stats = st.session_state.get('source_stats', {})
+    sources_used = source_stats.get('sources_used', [])
+    if len(sources_used) > 1:
+        source_badges = []
+        if 'mapbox' in sources_used:
+            source_badges.append(f"<span style='background:rgba(59,130,246,0.15); color:#93c5fd; padding:4px 10px; border-radius:999px; font-size:12px;'>🟦 Mapbox: {source_stats.get('mapbox_total', 0)} محل</span>")
+        if 'osm' in sources_used:
+            source_badges.append(f"<span style='background:rgba(16,185,129,0.15); color:#86efac; padding:4px 10px; border-radius:999px; font-size:12px;'>🗺️ OSM: +{source_stats.get('osm_total', 0)} محل</span>")
+        if 'foursquare' in sources_used:
+            source_badges.append(f"<span style='background:rgba(245,158,11,0.15); color:#fcd34d; padding:4px 10px; border-radius:999px; font-size:12px;'>🟨 Foursquare: +{source_stats.get('foursquare_total', 0)} محل</span>")
+        
+        st.markdown(f"""<div style="background:rgba(168,85,247,0.06); border:1px solid rgba(168,85,247,0.2); border-radius:10px; padding:10px 14px; margin-bottom:14px;">
+<div style="color:#c4b5fd; font-size:12px; font-weight:600; margin-bottom:6px;">📊 المصادر المستخدمة (دمج)</div>
+<div style="display:flex; gap:8px; flex-wrap:wrap;">
+{''.join(source_badges)}
+</div>
+</div>""", unsafe_allow_html=True)
     
     # نخزن القرار الكامل لعرضه في الأسفل
     full_decision_card = f"""
