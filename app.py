@@ -20,7 +20,14 @@ import re
 import json
 import math
 import time
+import html as _html
 import requests
+
+
+def esc(val):
+    if val is None:
+        return ""
+    return _html.escape(str(val), quote=True)
 import streamlit as st
 from dotenv import load_dotenv
 import folium
@@ -1147,8 +1154,7 @@ def find_governorate_by_coords(lat, lng):
 # ============================================================================
 # [الدفعة 2] CSS - التصميم الكامل
 # ============================================================================
-st.markdown("""
-<style>
+st.markdown("""<style>
     #MainMenu, header, footer, .stDeployButton {visibility: hidden !important; display: none !important;}
     [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"],
     [data-testid="manage-app-button"] {display: none !important;}
@@ -3338,7 +3344,10 @@ def analyze(pbc, radius_km, target_cat=None, gov_info=None, field_data=None):
     top_competitors = []
     if target_cat and target_cat in pbc:
         for p in pbc[target_cat][:5]:
-            top_competitors.append({'name': p['name'], 'dist': round(p['dist'], 2)})
+            top_competitors.append({
+                'name': p['name'], 'dist': round(p['dist'], 2),
+                'rating': p.get('rating'), 'reviews': p.get('reviews'),
+            })
 
     # قسم "ما يحتاج تحقق ميداني" - شفافية كاملة
     needs_verification = []
@@ -4220,7 +4229,7 @@ def build_report_html(a, pbc, lat, lng, radius):
         <div class="verdict-score" style="margin-top:6px;">🛣️ نوع الشارع: <b>{a.get('street_info', {}).get('category', 'غير معروف')}</b>{(' (' + a['street_info']['name'] + ')') if a.get('street_info', {}).get('name') else ''}
             &nbsp;|&nbsp; تأثيره على الفرصة: <b>{a.get('street_info', {}).get('opportunity_modifier', 0)}%</b>
         </div>
-        <p class="verdict-text">{a.get('ai_recommendation') if a.get('ai_enhanced') else a['decision_summary']}</p>
+        <p class="verdict-text">{esc(a.get('ai_recommendation') if a.get('ai_enhanced') else a['decision_summary'])}</p>
     </div>
     {truncation_banner_pdf}
     """
@@ -4911,8 +4920,7 @@ def build_report_html(a, pbc, lat, lng, radius):
 # ============================================================================
 api_badge = ""  # تم إخفاء بادجات Mapbox/AI من الواجهة (تفاصيل تقنية)
 
-st.markdown(f"""
-<div class="top-bar">
+st.markdown(f"""<div class="top-bar">
     <div>
         <div class="brand">📊 GBI</div>
         <div class="brand-sub">الاستثمار الذكي v3</div>
@@ -4931,8 +4939,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # تحذير الصدق في الأعلى
-st.markdown("""
-<div class="honesty-warning">
+st.markdown("""<div class="honesty-warning">
     <div class="honesty-warning-icon">⚠️</div>
     <div class="honesty-warning-text">
         <b>تنبيه:</b> هذا التحليل أداة استكشاف أولية، <b>وليس دراسة جدوى مهنية</b>. 
@@ -4942,8 +4949,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<div class="page-title">
+st.markdown("""<div class="page-title">
     <h1>لوحة التحكم</h1>
     <p>أدخل البيانات أعلاه واملأ النموذج التفاعلي لرفع جودة الدراسة</p>
 </div>
@@ -5146,8 +5152,7 @@ with st.expander("⚙️ الخيارات المتقدمة - النشاط + ال
 # [الدفعة 6] النموذج التفاعلي الكبير (يرفع جودة الدراسة)
 # ============================================================================
 with st.expander("📋 ارفع جودة الدراسة - أدخل ما تعرفه عن الموقع ميدانياً (مهم جداً)"):
-    st.markdown("""
-    <div style="background:rgba(168,85,247,0.08); border:1px solid rgba(168,85,247,0.3); border-radius:12px; padding:14px; margin-bottom:14px;">
+    st.markdown("""<div style="background:rgba(168,85,247,0.08); border:1px solid rgba(168,85,247,0.3); border-radius:12px; padding:14px; margin-bottom:14px;">
         <div style="color:#c4b5fd; font-weight:600; font-size:14px; margin-bottom:6px;">💡 لماذا هذا النموذج؟</div>
         <div style="color:#94a3b8; font-size:13px; line-height:1.6;">
             <b>أنت تعرف الموقع أكثر</b> من أي تحليل آلي.
@@ -5311,8 +5316,7 @@ with st.expander("📋 ارفع جودة الدراسة - أدخل ما تعرف
 
     # ============== التقرير الميداني النصي ==============
     with field_tabs[4]:
-        st.markdown("""
-        <div class="field-section-sub">
+        st.markdown("""<div class="field-section-sub">
         اكتب وصفاً نصياً للموقع (200-500 كلمة).
         كل ما لاحظته من زيارتك: الحركة، المنافسة، الفرص، التحديات.
         <b>AI سيحلل النص ويستخرج منه رؤى تُضاف للتحليل.</b>
@@ -5369,8 +5373,7 @@ with st.expander("📋 ارفع جودة الدراسة - أدخل ما تعرف
     total_fields = len(st.session_state.field_inputs)
     completion_pct = int((filled / total_fields) * 100) if total_fields else 0
     
-    st.markdown(f"""
-    <div class="completion-bar">
+    st.markdown(f"""<div class="completion-bar">
         <div class="completion-title">
             📊 اكتمال البيانات الميدانية: <b>{completion_pct}%</b> ({filled}/{total_fields} حقل)
         </div>
@@ -5577,8 +5580,7 @@ if analyze_btn:
 # ============================================================================
 if not st.session_state.analysis:
     # رسالة ترحيب
-    st.markdown("""
-    <div style="text-align:center; padding:60px 20px; background:#131826; border-radius:18px; margin-top:20px; border:1px solid #1f2937;">
+    st.markdown("""<div style="text-align:center; padding:60px 20px; background:#131826; border-radius:18px; margin-top:20px; border:1px solid #1f2937;">
         <div style="font-size:64px; margin-bottom:16px;">📊</div>
         <h2 style="color:white; margin-bottom:12px;">ابدأ تحليلك الآن</h2>
         <p style="color:#94a3b8; font-size:15px; max-width:600px; margin:0 auto; line-height:1.7;">
@@ -5685,7 +5687,7 @@ else:
             </div>
             <div class="verdict-emoji">{a['decision_emoji']}</div>
         </div>
-        <div class="verdict-reason">{decision_text}</div>
+        <div class="verdict-reason">{esc(decision_text)}</div>
         <div class="verdict-tags">
             <div class="verdict-tag">📍 {lat:.4f}, {lng:.4f}</div>
             <div class="verdict-tag">📏 {radius} كم</div>
@@ -5740,7 +5742,7 @@ else:
         _mod = si.get('opportunity_modifier', 0)
         _mod_txt = f'+{_mod}%' if _mod > 0 else (f'{_mod}%' if _mod < 0 else 'بدون تأثير')
         _mod_color = '#10b981' if _mod > 0 else ('#ef4444' if _mod < 0 else '#94a3b8')
-        _name_txt = f' — {si["name"]}' if si.get('name') else ''
+        _name_txt = f' — {esc(si["name"])}' if si.get('name') else ''
         _corner_txt = ' • قرب تقاطع ✚' if si.get('is_corner') else ''
         _eff = a.get('street_score_effect')
         _eff_html = ''
@@ -5755,7 +5757,7 @@ else:
   <div style="color:white; font-size:15px; font-weight:700;">{_icon} نوع الشارع: <span style="color:{_color};">{_cat}</span>{_name_txt}{_corner_txt}</div>
   <div style="background:rgba(0,0,0,0.25); padding:4px 12px; border-radius:999px; color:{_mod_color}; font-size:13px; font-weight:700;">تأثير الفرصة: {_mod_txt}</div>
 </div>
-<div style="color:#cbd5e1; font-size:13px; margin-top:10px; line-height:1.7;">{si.get('explanation','')}</div>
+<div style="color:#cbd5e1; font-size:13px; margin-top:10px; line-height:1.7;">{esc(si.get('explanation',''))}</div>
 {_eff_html}
 <div style="color:#64748b; font-size:11px; margin-top:8px;">🔎 المصدر: OpenStreetMap • الثقة: {si.get('confidence','—')} • للدقة الكاملة تحقق ميدانياً من واجهة الشارع وعرضه.</div>
 </div>""", unsafe_allow_html=True)
@@ -6377,13 +6379,26 @@ else:
         cat = CATEGORIES[a['target_cat']]
         st.markdown(f'<div class="section-title">🏆 أعلى المنافسين ({cat["icon"]} {cat["name"]})</div>',
                     unsafe_allow_html=True)
+        rated_any = False
         for i, c in enumerate(a['top_competitors'][:5], 1):
+            if c.get('rating'):
+                rated_any = True
+                _r = int(round(c['rating']))
+                stars = '★' * _r + '☆' * (5 - _r)
+                rev = f" ({c['reviews']} مراجعة)" if c.get('reviews') else ""
+                rating_html = f'<div style="color:#f59e0b; font-size:12px; white-space:nowrap;">{stars} {c["rating"]}{rev}</div>'
+            else:
+                rating_html = '<div style="color:#64748b; font-size:11px; white-space:nowrap;">بلا تقييم</div>'
             st.markdown(f"""<div class="competitor-row">
                 <div class="competitor-rank">#{i}</div>
-                <div class="competitor-name">{c['name']}</div>
+                <div class="competitor-name">{esc(c['name'])}</div>
+                {rating_html}
                 <div class="competitor-dist">{c['dist']} كم</div>
             </div>""", unsafe_allow_html=True)
-        st.caption("⚠️ تقييمات وعدد المراجعات وقوة المنافسين الفعلية غير متاحة (تحتاج Google Places API)")
+        if rated_any:
+            st.caption("⭐ التقييمات من OpenStreetMap (متاحة جزئياً). للتغطية الكاملة استخدم مفتاح Google Places.")
+        else:
+            st.caption("⚠️ لا تتوفر تقييمات لهؤلاء المنافسين في المصادر المجانية. التقييمات الكاملة تحتاج مفتاح Google Places (مدفوع).")
 
     # ═══════════════════════════════════════════════════════
     # 🗺️ الخريطة
@@ -6460,15 +6475,33 @@ else:
     # ═══════════════════════════════════════════════════════
     # 📋 تفاصيل المحلات (Expander)
     # ═══════════════════════════════════════════════════════
-    with st.expander(f"📋 عرض تفاصيل {a['total_places']} محل في {a['active_cat_count']} فئة"):
-        for cat_key, places in sorted(pbc.items(), key=lambda x: -len(x[1])):
-            cat = CATEGORIES[cat_key]
-            st.markdown(f"**{cat['icon']} {cat['name']} ({len(places)} محل)**")
-            for p in places[:10]:
-                st.markdown(f"• {p['name']} — {p['dist']:.2f} كم")
-            if len(places) > 10:
-                st.caption(f"... و {len(places) - 10} محل آخر")
-            st.markdown("---")
+    st.markdown('<div class="section-title">🏪 المحلات حسب التصنيف</div>', unsafe_allow_html=True)
+    st.caption("اضغط أي تصنيف لعرض كل المحلات المُكتشفة تحته (الاسم • المسافة • التقييم إن توفّر)")
+    _tflags = a.get('truncation_flags', {})
+    for cat_key, places in sorted(pbc.items(), key=lambda x: -len(x[1])):
+        cat = CATEGORIES[cat_key]
+        cnt = len(places)
+        mark = "+" if _tflags.get(cat_key) else ""
+        with st.expander(f"{cat['icon']} {cat['name']} — {cnt}{mark} محل"):
+            if _tflags.get(cat_key):
+                st.caption("⚠️ هذا التصنيف وصل لحد المصدر — العدد الفعلي أكبر.")
+            rated = [p for p in places if p.get('rating')]
+            if rated:
+                avg = sum(p['rating'] for p in rated) / len(rated)
+                st.caption(f"⭐ متوسط تقييم {len(rated)} محل: {avg:.1f}/5 (من OpenStreetMap)")
+            rows = []
+            for idx, p in enumerate(places, 1):
+                rate_txt = ""
+                if p.get('rating'):
+                    rev = f" / {p['reviews']} مراجعة" if p.get('reviews') else ""
+                    rate_txt = f' — <span style="color:#f59e0b;">⭐ {p["rating"]}{rev}</span>'
+                rows.append(
+                    f'<div style="display:flex; justify-content:space-between; gap:10px; '
+                    f'padding:7px 10px; border-bottom:1px solid rgba(255,255,255,0.06); font-size:13px;">'
+                    f'<span style="color:#e2e8f0;">{idx}. {esc(p["name"])}{rate_txt}</span>'
+                    f'<span style="color:#f59e0b; white-space:nowrap;">{p["dist"]:.2f} كم</span></div>'
+                )
+            st.markdown("".join(rows), unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
     # 🎯 القرار النهائي الكامل - في الأسفل (بعد قراءة كل المحتوى)
