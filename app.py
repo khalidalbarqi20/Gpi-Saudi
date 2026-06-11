@@ -1787,15 +1787,15 @@ out center body;"""
 # ════════════════════════════════════════════════════════════════
 STREET_HIERARCHY = {
     # tag value : (الفئة, وزن الأهمية, التأثير على الفرصة %)
-    'motorway':     ('رئيسي', 6, 0),    # سريع - لا يصلح للمحلات مباشرة
-    'trunk':        ('رئيسي', 5, 12),
+    'motorway':     ('رئيسي', 6, 10),   # طريق سريع: ظهور عالٍ من طريق الخدمة الموازي
+    'trunk':        ('رئيسي', 5, 13),
     'primary':      ('رئيسي', 5, 15),
     'secondary':    ('ثانوي', 3, 8),
     'tertiary':     ('ثانوي', 2, 4),
     'unclassified': ('فرعي', 1, 0),
     'residential':  ('فرعي', 1, -5),
     'living_street':('فرعي', 1, -8),
-    'service':      ('فرعي', 0, -10),
+    'service':      ('فرعي', 0, -3),    # طريق خدمة: غالباً موازٍ لرئيسي، ليس سلبياً جداً
 }
 
 
@@ -2428,6 +2428,17 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         saturation = min(100, int((existing / cap) * 100)) if cap > 0 else 100
         opportunity = max(0, int(demand - saturation * 0.65))
 
+        # 🔴 إصلاح فجوة البيانات: "0 منافس" في منطقة كثيفة ليس فرصة
+        total_in_area = sum(len(v) for v in pbc.values())
+        data_gap_zero = False
+        if existing == 0 and total_in_area >= 60:
+            common_cats = {'cafe', 'restaurant', 'fast_food', 'grocery', 'pharmacy',
+                           'beauty_salon', 'clothing_store', 'shopping', 'services',
+                           'auto_repair', 'bank', 'atm', 'clinic'}
+            if cat in common_cats:
+                data_gap_zero = True
+                opportunity = min(opportunity, 45)
+
         # تعديل بناءً على عوامل أخرى
         if traffic_score >= 70 and cat in ('cafe', 'restaurant', 'fast_food'):
             opportunity = min(100, opportunity + 8)
@@ -2439,9 +2450,10 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         # توليد "لماذا" مع تحذيرات صادقة
         reasons = []
         if existing == 0:
-            # تحديد ذكي: لو الفئة مقصوصة في فئات مشابهة = غالباً موجود بأسماء مختلفة
-            # وإلا = فجوة حقيقية محتملة
-            reasons.append(f"غير مسجّل في API - يحتاج تحقق ميداني")
+            if data_gap_zero:
+                reasons.append("⚠️ غير مسجّل رغم كثافة المنطقة — غالباً فجوة بيانات لا فرصة، تحقق ميدانياً")
+            else:
+                reasons.append("غير مسجّل في API - قد يكون فرصة أو نقص تسجيل، يحتاج تحقق ميداني")
         elif existing <= 2:
             reasons.append(f"منافسة محدودة ({existing} منافس)")
         elif existing > cap:
@@ -2465,6 +2477,7 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             'existing': existing,
             'saturation': saturation,
             'opportunity_score': opportunity,
+            'data_gap_zero': data_gap_zero,
             'reasons': reasons[:3] if reasons else ["تحليل قياسي"],
         })
 
@@ -2547,6 +2560,10 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             # المعادلة الأساسية: 40% فرصة + 60% انسجام
             final_opp = int((original_opp * 0.4) + (harmony * 0.6))
 
+            # 🔴 سقف فجوة البيانات: "0 منافس" في منطقة كثيفة لا يُمنح فرصة عالية
+            if r.get('data_gap_zero'):
+                final_opp = min(final_opp, 50)
+
             # خصم لعدم وجود ترابطات
             if len(chem['synergies']) == 0:
                 final_opp = max(0, final_opp - 15)
@@ -2573,19 +2590,24 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             saturation_veto = None
             competitors_per_1k = None
 
+            tflags = truncation_flags or {}
+            is_truncated = tflags.get(r['cat_key'], False)
+            effective_competitors = int(existing_count * 2.5) if is_truncated else existing_count
+
             if local_population and local_population > 0 and existing_count > 0:
-                competitors_per_1k = (existing_count * 1000) / local_population
+                competitors_per_1k = (effective_competitors * 1000) / local_population
+                _disp = f"{existing_count}+ (مقدّر {effective_competitors})" if is_truncated else f"{existing_count}"
                 if competitors_per_1k > 7:
                     saturation_veto = "كارثة"
-                    final_opp = min(final_opp, 20)  # سقف صارم
-                    r['reasons'].insert(0, f"🚫 كارثة سوقية: {existing_count} منافس لـ {local_population:,} نسمة محليين ({competitors_per_1k:.1f}/1000) - السوق مدمّر")
+                    final_opp = min(final_opp, 20)
+                    r['reasons'].insert(0, f"🚫 كارثة سوقية: {_disp} منافس لـ {local_population:,} نسمة ({competitors_per_1k:.1f}/1000) - السوق مدمّر")
                 elif competitors_per_1k > 3.5:
                     saturation_veto = "خطر شديد"
-                    final_opp = min(final_opp, 30)  # سقف صارم
-                    r['reasons'].insert(0, f"⚠️ خطر شديد: {existing_count} منافس لـ {local_population:,} نسمة ({competitors_per_1k:.1f}/1000) - تشبع مفرط")
+                    final_opp = min(final_opp, 30)
+                    r['reasons'].insert(0, f"⚠️ خطر شديد: {_disp} منافس لـ {local_population:,} نسمة ({competitors_per_1k:.1f}/1000) - تشبع مفرط")
                 elif competitors_per_1k > 1.5:
                     saturation_veto = "منافسة عالية"
-                    final_opp = min(final_opp, 45)  # سقف
+                    final_opp = min(final_opp, 45)
                     r['reasons'].insert(0, f"🟡 منافسة عالية: {competitors_per_1k:.1f} منافس/1000 نسمة - تحتاج تمايز قوي")
                 elif competitors_per_1k > 0.7:
                     r['reasons'].insert(0, f"📊 منافسة طبيعية: {competitors_per_1k:.1f} منافس/1000 نسمة")
@@ -2607,6 +2629,8 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
                 r['reasons'].insert(0, f"⚠️ غريب عن المحيط - لا توجد ترابطات قوية")
             elif not saturation_veto and len(chem['synergies']) == 0:
                 r['reasons'].insert(0, f"⚠️ لا توجد ترابطات قوية - يحتاج جهد تسويقي")
+            if r.get('data_gap_zero'):
+                r['reasons'].insert(0, "⚠️ 0 منافس في منطقة كثيفة = غالباً فجوة بيانات لا فرصة — تحقق ميدانياً")
             r['reasons'] = r['reasons'][:4]  # نسمح بـ 4 أسباب الآن (للفيتو)
         else:
             r['harmony_score'] = 0
@@ -2638,7 +2662,7 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
     veto_order = {'كارثة': 0, 'خطر شديد': 1, 'منافسة عالية': 2, 'إشباع مطلق': 3, None: 4}
     worst_candidates.sort(key=lambda x: (x['final_opportunity'], veto_order.get(x.get('saturation_veto'), 4)))
     worst = worst_candidates[:7]  # أعلى 7 من الأسوأ
-    return best, worst
+    return best, worst, results
 # ============================================================================
 # [الدفعة 4] التحليل الرئيسي - منطق صادق وبدون تخمين
 # ============================================================================
@@ -5483,9 +5507,10 @@ if analyze_btn:
 
     status.markdown('<p class="progress-msg">🎯 65% - تصنيف الأنشطة...</p>', unsafe_allow_html=True)
     progress.progress(65)
-    best, worst = rank_all_activities(pbc, a['dna'], a['traffic_score'], a['pop_score'], a['accessibility_score'], field_data=fi, local_population=a.get('local_population'), truncation_flags=truncation_flags)
+    best, worst, all_ranked = rank_all_activities(pbc, a['dna'], a['traffic_score'], a['pop_score'], a['accessibility_score'], field_data=fi, local_population=a.get('local_population'), truncation_flags=truncation_flags)
     a['best_activities'] = best
     a['worst_activities'] = worst
+    a['all_ranked_activities'] = all_ranked
 
     # التحليل المالي (إن وجدت أرقام)
     fin_in = st.session_state.fin_inputs
@@ -6177,331 +6202,137 @@ else:
     # ═══════════════════════════════════════════════════════
     # ✅ أفضل الأنشطة المقترحة + ❌ أسوأها (مدعومة بكيمياء العائلة)
     # ═══════════════════════════════════════════════════════
-    col_best, col_worst = st.columns(2)
-    
-    with col_best:
-        # 🔴 عنوان ديناميكي حسب قوة أفضل نشاط
-        best_acts = a.get('best_activities', [])
-        if best_acts:
-            top_final = best_acts[0].get('final_opportunity', best_acts[0]['opportunity_score'])
-            if top_final >= 55:
-                col_best_title = "✅ أفضل الأنشطة المقترحة"
-            elif top_final >= 35:
-                col_best_title = "⚠️ الأقل مخاطرة"
-            else:
-                col_best_title = "🚨 الأقل سوءاً (الكل مخاطرة)"
-        else:
-            col_best_title = "✅ أفضل الأنشطة المقترحة"
-        
-        st.markdown(f'<div class="section-title">{col_best_title}</div>', unsafe_allow_html=True)
-        st.caption("🧪 مرتّبة حسب الانسجام مع المحيط")
-        for i, act in enumerate(a.get('best_activities', [])[:5], 1):
-            reasons = " • ".join(act['reasons'])
-            final_score = act.get('final_opportunity', act['opportunity_score'])
-            harmony = act.get('harmony_score', 0)
-            
-            # تطبيق المستوى
+    _target = a.get('target_cat')
+    if _target:
+        all_ranked = a.get('all_ranked_activities', []) or a.get('best_activities', [])
+        chosen = next((r for r in all_ranked if r['cat_key'] == _target), None)
+        st.markdown('<div class="section-title">🎯 نشاطك المختار</div>', unsafe_allow_html=True)
+        if chosen:
+            reasons = " • ".join(chosen['reasons'])
+            final_score = chosen.get('final_opportunity', chosen['opportunity_score'])
+            harmony = chosen.get('harmony_score', 0)
             final_lvl = score_to_level(final_score)
             harmony_lvl = score_to_level(harmony)
-            
-            st.markdown(f"""<div class="activity-rank-card">
-                <div class="rank-number">{i}</div>
+            st.markdown(f"""<div class="activity-rank-card" style="border-color:{final_lvl['color']};">
+                <div class="rank-number" style="color:{final_lvl['color']};">🎯</div>
                 <div class="rank-content">
-                    <div class="rank-name">{act['icon']} {act['cat_name']}</div>
+                    <div class="rank-name">{chosen['icon']} {chosen['cat_name']}</div>
                     <div class="rank-reason">💡 {reasons}<br>
-                        <span style="color:#64748b; font-size:11px;">منافسين: {act['existing']} | 
+                        <span style="color:#64748b; font-size:11px;">منافسين: {chosen['existing']} | 
                         <span style="color:{harmony_lvl['color']};">🧪 الانسجام: {harmony_lvl['icon']} {harmony_lvl['level']}</span></span>
                     </div>
                 </div>
                 <div style="background:{final_lvl['color']}22; color:{final_lvl['color']}; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap;">{final_lvl['icon']} {final_lvl['level']}</div>
             </div>""", unsafe_allow_html=True)
-
-    with col_worst:
-        st.markdown('<div class="section-title">🚫 أنشطة عالية المخاطرة</div>', unsafe_allow_html=True)
-        if a.get('worst_activities'):
-            st.caption("غير منسجمة مع المحيط أو السوق مشبع")
-            for act in a['worst_activities']:
+        chosen_score = chosen.get('final_opportunity', 0) if chosen else 0
+        alternatives = [r for r in all_ranked
+                        if r['cat_key'] != _target
+                        and r.get('final_opportunity', 0) > chosen_score][:3]
+        if alternatives:
+            st.markdown('<div class="section-title">💡 فرص قد تكون أفضل</div>', unsafe_allow_html=True)
+            st.caption("أنشطة منسجمة مع نفس المحيط بفرصة أعلى من نشاطك المختار")
+            for i, act in enumerate(alternatives, 1):
                 reasons = " • ".join(act['reasons'])
                 final_score = act.get('final_opportunity', act['opportunity_score'])
                 harmony = act.get('harmony_score', 0)
-                
                 final_lvl = score_to_level(final_score)
                 harmony_lvl = score_to_level(harmony)
-                
-                st.markdown(f"""<div class="activity-rank-card" style="border-color:rgba(239,68,68,0.3);">
-                    <div class="rank-number" style="color:#ef4444;">✗</div>
+                st.markdown(f"""<div class="activity-rank-card">
+                    <div class="rank-number">{i}</div>
                     <div class="rank-content">
                         <div class="rank-name">{act['icon']} {act['cat_name']}</div>
-                        <div class="rank-reason">⚠️ {reasons}<br>
+                        <div class="rank-reason">💡 {reasons}<br>
                             <span style="color:#64748b; font-size:11px;">منافسين: {act['existing']} | 
                             <span style="color:{harmony_lvl['color']};">🧪 الانسجام: {harmony_lvl['icon']} {harmony_lvl['level']}</span></span>
                         </div>
                     </div>
                     <div style="background:{final_lvl['color']}22; color:{final_lvl['color']}; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap;">{final_lvl['icon']} {final_lvl['level']}</div>
                 </div>""", unsafe_allow_html=True)
-        else:
-            st.info("لا توجد أنشطة بفرصة منخفضة جداً - كل الأنشطة لها إمكانات")
-
-    # ═══════════════════════════════════════════════════════
-    # 💰 التحليل المالي (لو موجود)
-    # ═══════════════════════════════════════════════════════
-    if a.get('financial'):
-        f = a['financial']
-        st.markdown('<div class="section-title">💰 التحليل المالي والجدوى</div>', unsafe_allow_html=True)
-        
-        vc_map = {'good': '#10b981', 'ok': '#3b82f6', 'warn': '#f59e0b', 'danger': '#ef4444'}
-        vc = vc_map.get(f['verdict_status'], '#94a3b8')
-        
-        st.markdown(f"""<div style="background:rgba(0,0,0,0.2); border:2px solid {vc}; border-radius:14px; padding:18px; margin-bottom:14px;">
-            <div style="color:{vc}; font-size:20px; font-weight:800; margin-bottom:8px;">{f['verdict']}</div>
-            <div style="color:#cbd5e1; font-size:14px; line-height:1.7;">{f['verdict_detail']}</div>
-        </div>""", unsafe_allow_html=True)
-        
-        fc1, fc2, fc3, fc4 = st.columns(4)
-        with fc1:
-            st.markdown(f"""<div class="kpi-card">
-                <div class="kpi-title">💰 رأس المال المطلوب</div>
-                <div class="kpi-value-sm">{f['total_capital']:,.0f}</div>
-                <div class="kpi-sub">ر.س</div>
-            </div>""", unsafe_allow_html=True)
-        with fc2:
-            st.markdown(f"""<div class="kpi-card">
-                <div class="kpi-title">📈 الإيرادات الشهرية</div>
-                <div class="kpi-value-sm" style="color:#10b981;">{f['monthly_revenue']:,.0f}</div>
-                <div class="kpi-sub">ر.س</div>
-            </div>""", unsafe_allow_html=True)
-        with fc3:
-            st.markdown(f"""<div class="kpi-card">
-                <div class="kpi-title">📉 المصاريف الشهرية</div>
-                <div class="kpi-value-sm" style="color:#ef4444;">{f['monthly_expenses']:,.0f}</div>
-                <div class="kpi-sub">ر.س</div>
-            </div>""", unsafe_allow_html=True)
-        with fc4:
-            profit_color = '#10b981' if f['net_profit_monthly'] > 0 else '#ef4444'
-            st.markdown(f"""<div class="kpi-card">
-                <div class="kpi-title">💵 صافي الربح</div>
-                <div class="kpi-value-sm" style="color:{profit_color};">{f['net_profit_monthly']:,.0f}</div>
-                <div class="kpi-sub">ر.س/شهر</div>
-            </div>""", unsafe_allow_html=True)
-
-        if f.get('breakeven_daily') or f.get('payback_months'):
-            extra1, extra2 = st.columns(2)
-            if f.get('breakeven_daily'):
-                with extra1:
-                    st.markdown(f"""<div class="kpi-card">
-                        <div class="kpi-title">⚖️ نقطة التعادل اليومية</div>
-                        <div class="kpi-value-sm" style="color:#f59e0b;">{f['breakeven_daily']} عميل</div>
-                        <div class="kpi-sub">عدد العملاء المطلوب للتعادل</div>
-                    </div>""", unsafe_allow_html=True)
-            if f.get('payback_months'):
-                with extra2:
-                    st.markdown(f"""<div class="kpi-card">
-                        <div class="kpi-title">📆 استرداد رأس المال</div>
-                        <div class="kpi-value-sm" style="color:#3b82f6;">{f['payback_months']} شهر</div>
-                        <div class="kpi-sub">المدة لاسترداد الاستثمار</div>
-                    </div>""", unsafe_allow_html=True)
-        
-        st.caption("⚠️ بناءً على أرقامك المُدخلة. الافتراضات قابلة للتعديل: راتب 4,000 ر.س/موظف، هامش 35-50%.")
-
-    # ═══════════════════════════════════════════════════════
-    # 📝 تحليل التقرير الميداني
-    # ═══════════════════════════════════════════════════════
-    if a.get('field_report_analysis'):
-        fra = a['field_report_analysis']
-        st.markdown('<div class="section-title">📝 تحليل تقريرك الميداني (AI)</div>', unsafe_allow_html=True)
-        st.markdown(f"""<div style="background:rgba(168,85,247,0.08); border:1px solid rgba(168,85,247,0.3); border-radius:14px; padding:18px; margin-bottom:14px;">
-            <div style="color:#c4b5fd; font-size:13px; font-weight:600; margin-bottom:6px;">📌 الملخص</div>
-            <div style="color:#e2e8f0; font-size:14px; line-height:1.7;">{fra.get('summary', '-')}</div>
-        </div>""", unsafe_allow_html=True)
-        
-        fr1, fr2 = st.columns(2)
-        with fr1:
-            insights_html = "".join(f'<div style="color:#3b82f6; padding:5px 0; font-size:13px;">💡 {i}</div>' for i in fra.get('key_insights', []))
-            opps_html = "".join(f'<div style="color:#10b981; padding:5px 0; font-size:13px;">✨ {o}</div>' for o in fra.get('opportunities_detected', []))
-            st.markdown(f"""<div class="info-card">
-                <div class="info-card-title">💡 رؤى وفرص مكتشفة</div>
-                {insights_html}
-                {opps_html if opps_html else ''}
-            </div>""", unsafe_allow_html=True)
-        with fr2:
-            warns_html = "".join(f'<div style="color:#f59e0b; padding:5px 0; font-size:13px;">⚠️ {w}</div>' for w in fra.get('warnings_detected', []))
-            facts = fra.get('extracted_facts', {})
-            facts_html = ""
-            for k, v in facts.items():
-                fact_label = {'foot_traffic': 'الحركة', 'competitor_strength': 'قوة المنافسين', 'area_potential': 'إمكانات المنطقة'}.get(k, k)
-                facts_html += f'<div style="color:#cbd5e1; padding:5px 0; font-size:13px;">📊 {fact_label}: <b>{v}</b></div>'
-            st.markdown(f"""<div class="info-card">
-                <div class="info-card-title">⚠️ تحذيرات وحقائق مستخرجة</div>
-                {facts_html}
-                {warns_html}
-            </div>""", unsafe_allow_html=True)
-
-    # ═══════════════════════════════════════════════════════
-    # 🔍 ما يحتاج تحقق ميداني (شفافية كاملة)
-    # ═══════════════════════════════════════════════════════
-    if a.get('needs_verification'):
-        st.markdown('<div class="section-title">🔍 ما يحتاج تحقق ميداني (لرفع دقة التحليل)</div>',
-                    unsafe_allow_html=True)
-        items_html = "".join(f'<li style="color:#cbd5e1; padding:4px 0;">🔎 {v}</li>' for v in a['needs_verification'])
-        st.markdown(f"""<div class="needs-verification">
-            <div class="needs-verification-title">⚠️ بيانات غير متوفرة آلياً - تحتاج جمعاً ميدانياً:</div>
-            <ul>{items_html}</ul>
-        </div>""", unsafe_allow_html=True)
-
-    # ═══════════════════════════════════════════════════════
-    # 🧬 تركيبة المحلات في المحيط (DNA)
-    # ═══════════════════════════════════════════════════════
-    if a.get('dna'):
-        d = a['dna']
-        colors = {'family': '#10b981', 'youth': '#a855f7', 'commercial': '#3b82f6', 'food': '#ef4444', 'service': '#f59e0b'}
-        labels = {'family': 'عائلي', 'youth': 'شبابي', 'commercial': 'تجاري', 'food': 'طعام', 'service': 'خدماتي'}
-        dna_html = ""
-        for k in ['family', 'youth', 'commercial', 'food', 'service']:
-            val = d.get(k, 0)
-            dna_html += f"""<div class="dna-row">
-                <div class="dna-label">{labels[k]}</div>
-                <div class="dna-bar"><div class="dna-fill" style="width:{val}%; background:{colors[k]};"></div></div>
-                <div class="dna-value" style="color:{colors[k]};">{val}%</div>
-            </div>"""
-        st.markdown(f"""<div class="info-card">
-            <div class="info-card-title">🏪 تركيبة المحلات في المحيط <span style="font-size:11px; color:#94a3b8; font-weight:400;">(تحليل العرض)</span></div>
-            <div style="color:#cbd5e1; margin-bottom:10px;">الطابع الأقوى للمحلات: <b style="color:white;">{d['main']}</b></div>
-            {dna_html}
-            <div style="color:#fbbf24; font-size:11px; margin-top:10px;">
-                📊 يصف <b>نوع المحلات الموجودة</b> (العرض) - ليس تركيبة السكان (الطلب)
-            </div>
-        </div>""", unsafe_allow_html=True)
-
-    # ═══════════════════════════════════════════════════════
-    # 🏆 أعلى المنافسين (لو محدد نشاط)
-    # ═══════════════════════════════════════════════════════
-    if a.get('target_cat') and a.get('top_competitors'):
-        cat = CATEGORIES[a['target_cat']]
-        st.markdown(f'<div class="section-title">🏆 أعلى المنافسين ({cat["icon"]} {cat["name"]})</div>',
-                    unsafe_allow_html=True)
-        rated_any = False
-        for i, c in enumerate(a['top_competitors'][:5], 1):
-            if c.get('rating'):
-                rated_any = True
-                _r = int(round(c['rating']))
-                stars = '★' * _r + '☆' * (5 - _r)
-                rev = f" ({c['reviews']} مراجعة)" if c.get('reviews') else ""
-                rating_html = f'<div style="color:#f59e0b; font-size:12px; white-space:nowrap;">{stars} {c["rating"]}{rev}</div>'
+    else:
+        col_best, col_worst = st.columns(2)
+        with col_best:
+            best_acts = a.get('best_activities', [])
+            if best_acts:
+                top_final = best_acts[0].get('final_opportunity', best_acts[0]['opportunity_score'])
+                if top_final >= 55:
+                    col_best_title = "✅ أفضل الأنشطة المقترحة"
+                elif top_final >= 35:
+                    col_best_title = "⚠️ الأقل مخاطرة"
+                else:
+                    col_best_title = "🚨 الأقل سوءاً (الكل مخاطرة)"
             else:
-                rating_html = '<div style="color:#64748b; font-size:11px; white-space:nowrap;">بلا تقييم</div>'
-            st.markdown(f"""<div class="competitor-row">
-                <div class="competitor-rank">#{i}</div>
-                <div class="competitor-name">{esc(c['name'])}</div>
-                {rating_html}
-                <div class="competitor-dist">{c['dist']} كم</div>
-            </div>""", unsafe_allow_html=True)
-        if rated_any:
-            st.caption("⭐ التقييمات من OpenStreetMap (متاحة جزئياً). للتغطية الكاملة استخدم مفتاح Google Places.")
-        else:
-            st.caption("⚠️ لا تتوفر تقييمات لهؤلاء المنافسين في المصادر المجانية. التقييمات الكاملة تحتاج مفتاح Google Places (مدفوع).")
+                col_best_title = "✅ أفضل الأنشطة المقترحة"
+            st.markdown(f'<div class="section-title">{col_best_title}</div>', unsafe_allow_html=True)
+            st.caption("🧪 مرتّبة حسب الانسجام مع المحيط")
+            for i, act in enumerate(a.get('best_activities', [])[:5], 1):
+                reasons = " • ".join(act['reasons'])
+                final_score = act.get('final_opportunity', act['opportunity_score'])
+                harmony = act.get('harmony_score', 0)
+                final_lvl = score_to_level(final_score)
+                harmony_lvl = score_to_level(harmony)
+                st.markdown(f"""<div class="activity-rank-card">
+                    <div class="rank-number">{i}</div>
+                    <div class="rank-content">
+                        <div class="rank-name">{act['icon']} {act['cat_name']}</div>
+                        <div class="rank-reason">💡 {reasons}<br>
+                            <span style="color:#64748b; font-size:11px;">منافسين: {act['existing']} | 
+                            <span style="color:{harmony_lvl['color']};">🧪 الانسجام: {harmony_lvl['icon']} {harmony_lvl['level']}</span></span>
+                        </div>
+                    </div>
+                    <div style="background:{final_lvl['color']}22; color:{final_lvl['color']}; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap;">{final_lvl['icon']} {final_lvl['level']}</div>
+                </div>""", unsafe_allow_html=True)
+        with col_worst:
+            st.markdown('<div class="section-title">🚫 أنشطة عالية المخاطرة</div>', unsafe_allow_html=True)
+            if a.get('worst_activities'):
+                st.caption("غير منسجمة مع المحيط أو السوق مشبع")
+                for act in a['worst_activities']:
+                    reasons = " • ".join(act['reasons'])
+                    final_score = act.get('final_opportunity', act['opportunity_score'])
+                    harmony = act.get('harmony_score', 0)
+                    final_lvl = score_to_level(final_score)
+                    harmony_lvl = score_to_level(harmony)
+                    st.markdown(f"""<div class="activity-rank-card" style="border-color:rgba(239,68,68,0.3);">
+                        <div class="rank-number" style="color:#ef4444;">✗</div>
+                        <div class="rank-content">
+                            <div class="rank-name">{act['icon']} {act['cat_name']}</div>
+                            <div class="rank-reason">⚠️ {reasons}<br>
+                                <span style="color:#64748b; font-size:11px;">منافسين: {act['existing']} | 
+                                <span style="color:{harmony_lvl['color']};">🧪 الانسجام: {harmony_lvl['icon']} {harmony_lvl['level']}</span></span>
+                            </div>
+                        </div>
+                        <div style="background:{final_lvl['color']}22; color:{final_lvl['color']}; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap;">{final_lvl['icon']} {final_lvl['level']}</div>
+                    </div>""", unsafe_allow_html=True)
+            else:
+                st.info("لا توجد أنشطة بفرصة منخفضة جداً - كل الأنشطة لها إمكانات")
 
-    # ═══════════════════════════════════════════════════════
-    # 🗺️ الخريطة
-    # ═══════════════════════════════════════════════════════
-    st.markdown('<div class="section-title">🗺️ خريطة الموقع</div>', unsafe_allow_html=True)
-    try:
-        m = folium.Map(location=[lat, lng], zoom_start=14, tiles='cartodbpositron')
-        folium.Circle(location=[lat, lng], radius=radius * 1000,
-                      color='#ef4444', fill=True, fillOpacity=0.08, weight=2).add_to(m)
-        folium.Marker(location=[lat, lng],
-                      popup=f'<b>📍 موقعك</b><br>{a["area_type"]}',
-                      icon=folium.Icon(color='red', icon='star', prefix='fa')).add_to(m)
-        for cat_key, places in pbc.items():
+    if not a.get('target_cat'):
+        st.markdown('<div class="section-title">🏪 المحلات حسب التصنيف</div>', unsafe_allow_html=True)
+        st.caption("اضغط أي تصنيف لعرض كل المحلات المُكتشفة تحته (الاسم • المسافة • التقييم إن توفّر)")
+        _tflags = a.get('truncation_flags', {})
+        for cat_key, places in sorted(pbc.items(), key=lambda x: -len(x[1])):
             cat = CATEGORIES[cat_key]
-            for p in places[:8]:
-                folium.CircleMarker(
-                    location=[p['lat'], p['lng']],
-                    radius=4, popup=f"{cat['icon']} {p['name']}",
-                    color=cat['color'], fill=True, fillOpacity=0.7
-                ).add_to(m)
-        st_folium(m, use_container_width=True, height=420, returned_objects=[])
-    except Exception:
-        st.warning("⚠️ تعذّر عرض الخريطة")
-
-    # ═══════════════════════════════════════════════════════
-    # 📊 مخطط توزيع المحلات + تحذير اقتطاع البيانات
-    # ═══════════════════════════════════════════════════════
-    st.markdown('<div class="section-title">📊 توزيع المحلات حسب الفئة</div>', unsafe_allow_html=True)
-    
-    # 🔴 تحذير اقتطاع البيانات (إذا 3+ فئات وصلت لحد API)
-    trunc_flags = a.get('truncation_flags', {})
-    truncated_count = sum(1 for f in trunc_flags.values() if f)
-    if truncated_count >= 3:
-        st.markdown(f"""<div style="background:rgba(239,68,68,0.10); border:1px solid #ef4444; border-right:4px solid #ef4444; border-radius:12px; padding:14px; margin-bottom:14px;">
-<div style="color:#fca5a5; font-size:14px; font-weight:700; margin-bottom:6px;">⚠️ بيانات هذه المنطقة مكثّفة</div>
-<div style="color:#cbd5e1; font-size:13px; line-height:1.7;">
-<b>{truncated_count} فئة</b> قد يكون الواقع فيها أكبر مما يظهر. الإشباع الفعلي قد يكون أعلى - كن أكثر حذراً.
-</div>
-</div>""", unsafe_allow_html=True)
-    
-    chart_data = sorted([(CATEGORIES[k]['name'], len(v), CATEGORIES[k]['color'], trunc_flags.get(k, False)) for k, v in pbc.items()],
-                        key=lambda x: -x[1])[:15]
-    if chart_data:
-        # نضيف "+" للأرقام المقصوصة في النص
-        text_labels = [f"{d[1]}+" if d[3] else str(d[1]) for d in chart_data]
-        fig = go.Figure(data=[go.Bar(
-            x=[d[1] for d in chart_data],
-            y=[d[0] for d in chart_data],
-            orientation='h',
-            marker=dict(color=[d[2] for d in chart_data]),
-            text=text_labels,
-            textposition='outside',
-        )])
-        fig.update_layout(
-            paper_bgcolor='#131826', plot_bgcolor='#131826',
-            font=dict(color='white', family='Tahoma'),
-            margin=dict(l=80, r=20, t=20, b=40),
-            height=max(300, len(chart_data) * 28),
-            xaxis=dict(gridcolor='#1f2937'),
-            yaxis=dict(autorange='reversed'),
-        )
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-
-    # ═══════════════════════════════════════════════════════
-    # 🔍 الخدمات المفقودة - تظهر فقط مع نشاط محدد (للسياق)
-    # عند عدم تحديد نشاط، الـ tiers الذكية في الأعلى تغطي هذا
-    # ═══════════════════════════════════════════════════════
-    if a.get('missing_services') and a.get('target_cat'):
-        st.markdown('<div class="section-title">🔍 خدمات أساسية مفقودة</div>', unsafe_allow_html=True)
-        missing_html = "".join(f'<div style="background:rgba(239,68,68,0.1); padding:10px 14px; border-radius:10px; color:#fca5a5; margin-bottom:8px;">⚠️ {s}</div>' for s in a['missing_services'])
-        st.markdown(missing_html, unsafe_allow_html=True)
-        st.caption("💡 وجود فجوة قد يكون فرصة - أو قد يعكس عدم وجود طلب. تحقق ميدانياً.")
-
-    # ═══════════════════════════════════════════════════════
-    # 📋 تفاصيل المحلات (Expander)
-    # ═══════════════════════════════════════════════════════
-    st.markdown('<div class="section-title">🏪 المحلات حسب التصنيف</div>', unsafe_allow_html=True)
-    st.caption("اضغط أي تصنيف لعرض كل المحلات المُكتشفة تحته (الاسم • المسافة • التقييم إن توفّر)")
-    _tflags = a.get('truncation_flags', {})
-    for cat_key, places in sorted(pbc.items(), key=lambda x: -len(x[1])):
-        cat = CATEGORIES[cat_key]
-        cnt = len(places)
-        mark = "+" if _tflags.get(cat_key) else ""
-        with st.expander(f"{cat['icon']} {cat['name']} — {cnt}{mark} محل"):
-            if _tflags.get(cat_key):
-                st.caption("⚠️ هذا التصنيف وصل لحد المصدر — العدد الفعلي أكبر.")
-            rated = [p for p in places if p.get('rating')]
-            if rated:
-                avg = sum(p['rating'] for p in rated) / len(rated)
-                st.caption(f"⭐ متوسط تقييم {len(rated)} محل: {avg:.1f}/5 (من OpenStreetMap)")
-            rows = []
-            for idx, p in enumerate(places, 1):
-                rate_txt = ""
-                if p.get('rating'):
-                    rev = f" / {p['reviews']} مراجعة" if p.get('reviews') else ""
-                    rate_txt = f' — <span style="color:#f59e0b;">⭐ {p["rating"]}{rev}</span>'
-                rows.append(
-                    f'<div style="display:flex; justify-content:space-between; gap:10px; '
-                    f'padding:7px 10px; border-bottom:1px solid rgba(255,255,255,0.06); font-size:13px;">'
-                    f'<span style="color:#e2e8f0;">{idx}. {esc(p["name"])}{rate_txt}</span>'
-                    f'<span style="color:#f59e0b; white-space:nowrap;">{p["dist"]:.2f} كم</span></div>'
-                )
-            st.markdown("".join(rows), unsafe_allow_html=True)
+            cnt = len(places)
+            mark = "+" if _tflags.get(cat_key) else ""
+            with st.expander(f"{cat['icon']} {cat['name']} — {cnt}{mark} محل"):
+                if _tflags.get(cat_key):
+                    st.caption("⚠️ هذا التصنيف وصل لحد المصدر — العدد الفعلي أكبر.")
+                rated = [p for p in places if p.get('rating')]
+                if rated:
+                    avg = sum(p['rating'] for p in rated) / len(rated)
+                    st.caption(f"⭐ متوسط تقييم {len(rated)} محل: {avg:.1f}/5 (من OpenStreetMap)")
+                rows = []
+                for idx, p in enumerate(places, 1):
+                    rate_txt = ""
+                    if p.get('rating'):
+                        rev = f" / {p['reviews']} مراجعة" if p.get('reviews') else ""
+                        rate_txt = f' — <span style="color:#f59e0b;">⭐ {p["rating"]}{rev}</span>'
+                    rows.append(
+                        f'<div style="display:flex; justify-content:space-between; gap:10px; '
+                        f'padding:7px 10px; border-bottom:1px solid rgba(255,255,255,0.06); font-size:13px;">'
+                        f'<span style="color:#e2e8f0;">{idx}. {esc(p["name"])}{rate_txt}</span>'
+                        f'<span style="color:#f59e0b; white-space:nowrap;">{p["dist"]:.2f} كم</span></div>'
+                    )
+                st.markdown("".join(rows), unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
     # 🎯 القرار النهائي الكامل - في الأسفل (بعد قراءة كل المحتوى)
