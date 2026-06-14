@@ -37,6 +37,23 @@ from PIL import Image
 
 load_dotenv()
 
+# ════════════════════════════════════════════════════════════════
+# 🧠 الذكاء الاقتصادي - وحدة مستقلة
+# ════════════════════════════════════════════════════════════════
+try:
+    from economic_intelligence import (
+        generate_economic_intelligence_report,
+        discover_trip_chains,
+        identify_area_identity,
+        calculate_need_score,
+        calculate_gap_score,
+        ACTIVITY_ECOSYSTEM,
+        IDEAL_DENSITY_PER_1K,
+    )
+    EI_AVAILABLE = True
+except ImportError:
+    EI_AVAILABLE = False
+
 
 def _read_key(name: str) -> str:
     try:
@@ -5488,6 +5505,23 @@ if analyze_btn:
     # 🔴 إضافة truncation_flags للوصول لها في العرض والـ PDF
     a['truncation_flags'] = truncation_flags
 
+    # ════════════════════════════════════════════════════════
+    # 🧠 الذكاء الاقتصادي - فهم لماذا توجد الأنشطة
+    # ════════════════════════════════════════════════════════
+    if EI_AVAILABLE:
+        status.markdown('<p class="progress-msg">🧠 57% - تحليل العلاقات الاقتصادية...</p>', unsafe_allow_html=True)
+        progress.progress(57)
+        try:
+            ei_report = generate_economic_intelligence_report(
+                pbc=pbc,
+                a=a,
+                local_population=a.get('local_population', 0),
+                dna=a.get('dna', {}),
+            )
+            a['economic_intelligence'] = ei_report
+        except Exception as _ei_err:
+            a['economic_intelligence'] = None
+
     # 🛣️ دمج تأثير نوع الشارع في النقاط
     a['street_info'] = street_info
     street_mod = street_info.get('opportunity_modifier', 0)
@@ -5850,6 +5884,211 @@ else:
 </div>""", unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════
+    # 🧠 الذكاء الاقتصادي - يظهر دائماً
+    # ═══════════════════════════════════════════════════════
+    ei = a.get('economic_intelligence')
+    if ei and EI_AVAILABLE and a['total_places'] >= 5:
+        st.markdown('<div class="section-title">🧠 الذكاء الاقتصادي - لماذا توجد هذه الأنشطة هنا؟</div>', unsafe_allow_html=True)
+        st.caption("ليس فقط ماذا يوجد، بل لماذا نجح، وما الناقص، وما احتمالية نجاحه")
+
+        ei_tab1, ei_tab2, ei_tab3, ei_tab4 = st.tabs([
+            "🏙️ هوية المنطقة",
+            "🛤️ رحلات العملاء",
+            "📊 فجوة الطلب والعرض",
+            "🔍 مناطق مشابهة",
+        ])
+
+        # ── تاب 1: هوية المنطقة ──
+        with ei_tab1:
+            identity = ei.get('area_identity', {})
+            primary = identity.get('primary', {})
+
+            if identity.get('has_clear_identity'):
+                id_icon = primary.get('icon', '🏙️')
+                id_name = primary.get('name', '-')
+                id_desc = primary.get('description', '')
+                id_strength = primary.get('strength', 0)
+                id_color = '#10b981' if id_strength >= 70 else '#f59e0b' if id_strength >= 40 else '#94a3b8'
+
+                st.markdown(f"""<div style="background:linear-gradient(135deg,rgba(16,185,129,0.10) 0%,#131826 100%); border:2px solid {id_color}; border-radius:14px; padding:20px; margin-bottom:16px;">
+<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">
+<span style="font-size:42px;">{id_icon}</span>
+<div>
+<div style="color:{id_color}; font-size:20px; font-weight:800;">{id_name}</div>
+<div style="color:#94a3b8; font-size:13px; margin-top:4px;">{id_desc}</div>
+</div>
+<div style="margin-right:auto; background:rgba(255,255,255,0.06); padding:8px 16px; border-radius:999px; text-align:center;">
+<div style="color:{id_color}; font-size:22px; font-weight:800;">{id_strength}%</div>
+<div style="color:#94a3b8; font-size:11px;">وضوح الهوية</div>
+</div>
+</div>
+<div style="color:#cbd5e1; font-size:13px; line-height:1.7;">
+📍 <b>المؤشرات الموجودة:</b> {' • '.join([f"<span style='color:#86efac;'>{ind}</span>" for ind in primary.get('indicators_present', [])][:5])}<br>
+✅ <b>أنشطة تناسب هذه الهوية:</b> {' • '.join(primary.get('strong_opportunities', [])[:4])}<br>
+❌ <b>أنشطة لا تناسبها:</b> {' • '.join(primary.get('weak_opportunities', [])[:3])}
+</div>
+</div>""", unsafe_allow_html=True)
+
+                # هويات إضافية
+                all_matches = identity.get('all_matches', [])
+                if len(all_matches) > 1:
+                    st.caption(f"📌 المنطقة لها أيضاً: {' • '.join([m['icon'] + m['name'] for m in all_matches[1:3]])}")
+
+                # الملخص الاقتصادي
+                summary = ei.get('economic_summary', '')
+                if summary:
+                    st.markdown(f"""<div style="background:rgba(59,130,246,0.08); border-right:3px solid #3b82f6; padding:12px 16px; border-radius:8px; margin-top:10px;">
+<div style="color:#93c5fd; font-size:13px; font-weight:600; margin-bottom:4px;">📖 قصة المنطقة الاقتصادية</div>
+<div style="color:#cbd5e1; font-size:13px; line-height:1.7;">{summary}</div>
+</div>""", unsafe_allow_html=True)
+            else:
+                st.info("🔍 المنطقة لا تملك هوية اقتصادية واضحة - تركيبة متنوعة بدون تخصص. قد تكون هذا **فرصة** لأول نشاط متخصص.")
+
+        # ── تاب 2: رحلات العملاء ──
+        with ei_tab2:
+            chains = ei.get('trip_chains', [])
+            journey_opps = ei.get('journey_opportunities', [])
+
+            st.caption("رحلة العميل = نمط تحرك يتكرر. فهمها يكشف الفرص الحقيقية.")
+
+            # أهم 5 رحلات
+            for chain in chains[:5]:
+                comp_pct = chain['completion_pct']
+                comp_color = '#10b981' if comp_pct >= 75 else '#f59e0b' if comp_pct >= 50 else '#94a3b8'
+                is_opp = comp_pct >= 50 and not chain['is_complete']
+
+                present_html = " → ".join([f"<span style='color:#86efac; font-size:12px;'>✓ {cat}</span>" for cat in chain['present_stops']])
+                missing_html = " → ".join([f"<span style='color:#fca5a5; font-size:12px;'>✗ {cat}</span>" for cat in chain['missing_stops'][:3]])
+
+                st.markdown(f"""<div style="background:{'rgba(16,185,129,0.06)' if is_opp else 'rgba(255,255,255,0.02)'}; border:1px solid {'#10b981' if is_opp else '#1f2937'}; border-radius:12px; padding:14px; margin-bottom:10px;">
+<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+<span style="font-size:20px;">{chain['icon']}</span>
+<div style="flex:1;">
+<span style="color:white; font-size:14px; font-weight:700;">{chain['name']}</span>
+<span style="color:#64748b; font-size:11px; margin-right:8px;">⏰ {chain['time']}</span>
+</div>
+<div style="background:rgba(0,0,0,0.2); padding:4px 10px; border-radius:999px;">
+<span style="color:{comp_color}; font-size:13px; font-weight:700;">{comp_pct}%</span>
+</div>
+</div>
+<div style="font-size:12px; color:#94a3b8; margin-bottom:6px;">{chain['description']}</div>
+<div style="display:flex; gap:6px; flex-wrap:wrap; font-size:12px;">
+{present_html}
+{'→ ' + missing_html if missing_html else ''}
+</div>
+{f'<div style="margin-top:8px; background:rgba(16,185,129,0.10); padding:6px 10px; border-radius:6px; color:#86efac; font-size:11px;">💡 إضافة {", ".join(chain["missing_stops"][:2])} يُكمل هذه الرحلة</div>' if is_opp else ''}
+</div>""", unsafe_allow_html=True)
+
+            # أفضل فرص من رحلات العملاء
+            if journey_opps:
+                st.markdown('<div style="color:#fbbf24; font-size:14px; font-weight:700; margin:16px 0 8px 0;">💎 أفضل الفرص من رحلات العملاء</div>', unsafe_allow_html=True)
+                for opp in journey_opps[:4]:
+                    cat = opp['cat']
+                    cat_info = CATEGORIES.get(cat, {})
+                    journeys_text = " • ".join([j['journey_name'] for j in opp['appears_in_journeys'][:2]])
+                    st.markdown(f"""<div style="background:rgba(251,191,36,0.08); border-right:3px solid #f59e0b; padding:10px 14px; border-radius:8px; margin-bottom:8px;">
+<span style="font-size:16px;">{cat_info.get('icon','🏪')}</span>
+<span style="color:white; font-weight:600; font-size:14px; margin-right:8px;">{cat_info.get('name', cat)}</span>
+<span style="color:#94a3b8; font-size:12px;">يكمل: {journeys_text}</span>
+</div>""", unsafe_allow_html=True)
+
+        # ── تاب 3: فجوة الطلب والعرض ──
+        with ei_tab3:
+            need_gap = ei.get('need_gap_analysis', [])
+
+            st.caption("Need Score = هل يحتاجه السكان؟ | Supply Score = هل هو متوفر؟ | الفجوة = الفرصة الحقيقية")
+
+            if need_gap:
+                for item in need_gap[:6]:
+                    cat = item['cat']
+                    cat_info = CATEGORIES.get(cat, {})
+                    gap = item['gap_score']
+                    gap_color = item['gap_color']
+                    need = item['need_score']
+                    ideal = item['ideal_count']
+
+                    st.markdown(f"""<div style="background:#131826; border:1px solid #1f2937; border-radius:12px; padding:14px; margin-bottom:10px;">
+<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+<span style="font-size:20px;">{cat_info.get('icon','🏪')}</span>
+<div style="flex:1;">
+<span style="color:white; font-weight:700;">{cat_info.get('name', cat)}</span>
+<span style="color:#64748b; font-size:11px; margin-right:8px;">• مثالي: {ideal} محل</span>
+</div>
+<div style="background:rgba(0,0,0,0.3); padding:6px 14px; border-radius:999px; text-align:center;">
+<div style="color:{gap_color}; font-size:14px; font-weight:800;">{item['gap_type']}</div>
+</div>
+</div>
+<div style="display:flex; gap:8px;">
+<div style="flex:1; text-align:center; background:rgba(59,130,246,0.10); padding:8px; border-radius:8px;">
+<div style="color:#93c5fd; font-size:11px;">الطلب (Need)</div>
+<div style="color:white; font-size:18px; font-weight:700;">{need}</div>
+</div>
+<div style="flex:1; text-align:center; background:rgba(239,68,68,0.10); padding:8px; border-radius:8px;">
+<div style="color:#fca5a5; font-size:11px;">التوفر = 0</div>
+<div style="color:white; font-size:18px; font-weight:700;">0</div>
+</div>
+<div style="flex:1; text-align:center; background:rgba(0,0,0,0.2); padding:8px; border-radius:8px;">
+<div style="color:#94a3b8; font-size:11px;">الفجوة</div>
+<div style="color:{gap_color}; font-size:18px; font-weight:700;">+{gap}</div>
+</div>
+</div>
+<div style="color:#94a3b8; font-size:12px; margin-top:8px;">💡 {item['explanation']}</div>
+</div>""", unsafe_allow_html=True)
+            else:
+                st.info("✅ معظم الأنشطة الأساسية موجودة في المنطقة - السوق متوازن نسبياً")
+
+        # ── تاب 4: مناطق مشابهة ──
+        with ei_tab4:
+            comparable = ei.get('comparable_areas', {})
+
+            st.caption("أقوى طريقة لاكتشاف الفرص: ما ينجح في مناطق مشابهة ولا يوجد هنا")
+
+            if comparable.get('found'):
+                st.markdown(f"""<div style="background:rgba(168,85,247,0.08); border:1px solid #a855f7; border-radius:12px; padding:14px; margin-bottom:14px;">
+<div style="color:#c4b5fd; font-size:14px; font-weight:700; margin-bottom:6px;">🎯 المنطقة المشابهة: {comparable['primary_profile']}</div>
+<div style="color:#94a3b8; font-size:13px;">الأنشطة التالية تنجح في هذا النوع من المناطق لكنها غير موجودة هنا:</div>
+</div>""", unsafe_allow_html=True)
+
+                for opp in comparable.get('opportunities', [])[:6]:
+                    cat = opp['cat']
+                    cat_info = CATEGORIES.get(cat, {})
+                    is_key = opp.get('is_success_indicator', False)
+                    profiles_count = opp.get('appears_in_profiles', 1)
+
+                    st.markdown(f"""<div style="background:{'rgba(168,85,247,0.10)' if is_key else 'rgba(255,255,255,0.02)'}; border:1px solid {'#a855f7' if is_key else '#1f2937'}; border-radius:10px; padding:12px; margin-bottom:8px; display:flex; align-items:center; gap:10px;">
+<span style="font-size:20px;">{cat_info.get('icon','🏪')}</span>
+<div style="flex:1;">
+<span style="color:white; font-weight:700;">{cat_info.get('name', cat)}</span>
+{f'<span style="background:rgba(168,85,247,0.3); color:#c4b5fd; font-size:10px; padding:2px 8px; border-radius:999px; margin-right:6px;">مؤشر نجاح رئيسي</span>' if is_key else ''}
+</div>
+<span style="color:#94a3b8; font-size:12px;">يظهر في {profiles_count} منطقة مشابهة</span>
+</div>""", unsafe_allow_html=True)
+
+                # نصيحة التوصية المبنية على أدلة
+                evidence_recs = ei.get('evidence_based_recommendations', [])
+                if evidence_recs:
+                    st.markdown('<div style="color:#86efac; font-size:14px; font-weight:700; margin:16px 0 8px 0;">🏆 التوصيات المبنية على أدلة متعددة</div>', unsafe_allow_html=True)
+                    for rec in evidence_recs[:4]:
+                        cat = rec.get('cat', '')
+                        cat_info = CATEGORIES.get(cat, {})
+                        confidence = rec.get('confidence', 0)
+                        conf_color = '#10b981' if confidence >= 75 else '#f59e0b' if confidence >= 55 else '#94a3b8'
+
+                        st.markdown(f"""<div style="background:rgba(16,185,129,0.06); border-right:3px solid {conf_color}; padding:10px 14px; border-radius:8px; margin-bottom:8px;">
+<div style="display:flex; align-items:center; gap:8px;">
+<span style="font-size:16px;">{cat_info.get('icon','🏪')}</span>
+<span style="color:white; font-weight:700;">{cat_info.get('name', cat)}</span>
+<span style="color:#94a3b8; font-size:11px; margin-right:auto;">{rec.get('evidence_icon','')} {rec.get('evidence_type','')}</span>
+<span style="color:{conf_color}; font-size:13px; font-weight:700;">ثقة {confidence}%</span>
+</div>
+<div style="color:#94a3b8; font-size:12px; margin-top:4px;">{rec.get('explanation','')}</div>
+</div>""", unsafe_allow_html=True)
+            else:
+                st.info("📊 لم نجد مناطق مشابهة كافية للمقارنة. أدخل بيانات أكثر لتفعيل هذا التحليل.")
+
+        st.divider()
+
     # 🎯 الخدمات الأساسية - 3 مستويات (يعرض دائماً عند عدم تحديد نشاط)
     # ═══════════════════════════════════════════════════════
     target_cat_str_check = a.get('target_cat')
