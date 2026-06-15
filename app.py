@@ -2390,7 +2390,7 @@ def confidence_score(pbc, total_places, radius_km, has_field_data=False, has_gov
 # ============================================================================
 # [الدفعة 3] ترتيب الأنشطة (مع تحذير منطقي صادق)
 # ============================================================================
-def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_data=None, local_population=None, truncation_flags=None):
+def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_data=None, local_population=None, truncation_flags=None, gov_profile=None, gov_name=""):
     """
     صنّف الأنشطة من الأفضل للأسوأ.
     
@@ -2445,6 +2445,31 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         saturation = min(100, int((existing / cap) * 100)) if cap > 0 else 100
         opportunity = max(0, int(demand - saturation * 0.65))
 
+        # ════════════════════════════════════════════════════════
+        # 🧠 محرك اختبار الطلب الحقيقي (v2)
+        # "لا يوجد منافس" ≠ "فرصة" — يجب أن يوجد طلب أولاً
+        # ════════════════════════════════════════════════════════
+        demand_validation = None
+        demand_penalty_reason = None
+        if EI_AVAILABLE and gov_profile and existing == 0:
+            try:
+                from economic_intelligence import validate_demand
+                demand_validation = validate_demand(cat, gov_profile, local_population or 0, pbc)
+                if demand_validation.get('has_prerequisite') and not demand_validation.get('is_valid'):
+                    score_val = demand_validation.get('score', 0)
+                    if score_val < 20:
+                        # غياب طلب كامل - عقوبة شديدة
+                        opportunity = min(opportunity, 20)
+                        demand = min(demand, 30)
+                        demand_penalty_reason = f"⛔ {demand_validation['fail_reasons'][0] if demand_validation['fail_reasons'] else demand_validation['verdict']}"
+                    elif score_val < 40:
+                        # طلب ضعيف - عقوبة متوسطة
+                        opportunity = min(opportunity, 35)
+                        demand = min(demand, 50)
+                        demand_penalty_reason = f"⚠️ طلب محدود: {demand_validation['fail_reasons'][0] if demand_validation['fail_reasons'] else ''}"
+            except Exception:
+                pass
+
         # 🔴 إصلاح فجوة البيانات: "0 منافس" في منطقة كثيفة ليس فرصة
         total_in_area = sum(len(v) for v in pbc.values())
         data_gap_zero = False
@@ -2467,7 +2492,9 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         # توليد "لماذا" مع تحذيرات صادقة
         reasons = []
         if existing == 0:
-            if data_gap_zero:
+            if demand_penalty_reason:
+                reasons.append(demand_penalty_reason)
+            elif data_gap_zero:
                 reasons.append("⚠️ غير مسجّل رغم كثافة المنطقة — غالباً فجوة بيانات لا فرصة، تحقق ميدانياً")
             else:
                 reasons.append("غير مسجّل في API - قد يكون فرصة أو نقص تسجيل، يحتاج تحقق ميداني")
@@ -2495,6 +2522,7 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             'saturation': saturation,
             'opportunity_score': opportunity,
             'data_gap_zero': data_gap_zero,
+            'demand_validation': demand_validation,
             'reasons': reasons[:3] if reasons else ["تحليل قياسي"],
         })
 
@@ -5512,11 +5540,16 @@ if analyze_btn:
         status.markdown('<p class="progress-msg">🧠 57% - تحليل العلاقات الاقتصادية...</p>', unsafe_allow_html=True)
         progress.progress(57)
         try:
+            _ei_gov_name = ''
+            if a.get('gov_info') and a['gov_info'].get('name'):
+                _ei_gov_name = a['gov_info']['name']
             ei_report = generate_economic_intelligence_report(
                 pbc=pbc,
                 a=a,
                 local_population=a.get('local_population', 0),
                 dna=a.get('dna', {}),
+                gov_name=_ei_gov_name,
+                target_cat=a.get('target_cat', ''),
             )
             a['economic_intelligence'] = ei_report
         except Exception as _ei_err:
@@ -5541,7 +5574,24 @@ if analyze_btn:
 
     status.markdown('<p class="progress-msg">🎯 65% - تصنيف الأنشطة...</p>', unsafe_allow_html=True)
     progress.progress(65)
-    best, worst, all_ranked = rank_all_activities(pbc, a['dna'], a['traffic_score'], a['pop_score'], a['accessibility_score'], field_data=fi, local_population=a.get('local_population'), truncation_flags=truncation_flags)
+    # استخراج الملف الاقتصادي للمحافظة لتمريره لـ rank_all_activities
+    _gov_profile = None
+    # استخراج اسم المحافظة من gov_info (المصدر الرئيسي في التطبيق)
+    _gov_name = ''
+    if a.get('gov_info') and a['gov_info'].get('name'):
+        _gov_name = a['gov_info']['name']
+    elif a.get('governorate_name'):
+        _gov_name = a['governorate_name']
+    if EI_AVAILABLE and _gov_name:
+        try:
+            from economic_intelligence import get_governorate_profile
+            _gov_profile = get_governorate_profile(_gov_name)
+        except Exception:
+            pass
+    # احفظ في a للاستخدام في العرض
+    a['_gov_profile'] = _gov_profile
+    a['_gov_name'] = _gov_name
+    best, worst, all_ranked = rank_all_activities(pbc, a['dna'], a['traffic_score'], a['pop_score'], a['accessibility_score'], field_data=fi, local_population=a.get('local_population'), truncation_flags=truncation_flags, gov_profile=_gov_profile, gov_name=_gov_name)
     a['best_activities'] = best
     a['worst_activities'] = worst
     a['all_ranked_activities'] = all_ranked
@@ -6441,6 +6491,75 @@ else:
     # ═══════════════════════════════════════════════════════
     # ✅ أفضل الأنشطة المقترحة + ❌ أسوأها (مدعومة بكيمياء العائلة)
     # ═══════════════════════════════════════════════════════
+
+    # ════════════════════════════════════════════════════════
+    # 🏛️ بانر الطابع الاقتصادي للمحافظة + تحذيرات الطلب المعدوم
+    # ════════════════════════════════════════════════════════
+    _gp = a.get('_gov_profile')
+    _gn = a.get('_gov_name', '')
+    if _gp and _gn:
+        ev_badge = {"very_low": ("🔴 منعدمة", "#ef4444"), "low": ("🟠 منخفضة", "#f97316"),
+                    "medium": ("🟡 متوسطة", "#f59e0b"), "high": ("🟢 جيدة", "#10b981")}
+        ev_label, ev_color = ev_badge.get(_gp.get('ev_readiness', 'very_low'), ("🔴 منعدمة", "#ef4444"))
+        tourism_map = {"none":"لا يوجد","low":"منخفض","medium":"متوسط","high":"عالٍ","very_high":"مرتفع جداً"}
+        tourism_label = tourism_map.get(_gp.get('tourism_level','low'), '-')
+        income_map = {"low":"منخفض","medium":"متوسط","high":"مرتفع","very_high":"مرتفع جداً"}
+        income_label = income_map.get(_gp.get('income_level','medium'), '-')
+        is_transit = "✓ نعم" if _gp.get('is_transit') else "✗ لا"
+        has_uni = "✓ نعم" if _gp.get('has_university') else "✗ لا"
+        is_agri = "✓ نعم" if _gp.get('agricultural') else "✗ لا"
+
+        strong = ' • '.join(_gp.get('strong_sectors', [])[:4])
+        weak   = ' • '.join(_gp.get('weak_sectors', [])[:3])
+        notes  = _gp.get('notes', '')
+
+        st.markdown(f"""<div style="background:linear-gradient(135deg,rgba(99,102,241,0.12) 0%,#0f172a 100%); border:1px solid #4f46e5; border-radius:14px; padding:16px; margin-bottom:14px;">
+<div style="color:#a5b4fc; font-size:13px; font-weight:800; margin-bottom:10px;">🏛️ الطابع الاقتصادي لمحافظة {_gn}</div>
+<div style="color:#e2e8f0; font-size:13px; margin-bottom:8px;">📌 {_gp.get('economic_base','')}</div>
+<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:10px;">
+<div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:8px; text-align:center;">
+<div style="color:#94a3b8; font-size:10px;">جاهزية الكهربائي</div>
+<div style="color:{ev_color}; font-size:13px; font-weight:700;">{ev_label}</div>
+</div>
+<div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:8px; text-align:center;">
+<div style="color:#94a3b8; font-size:10px;">السياحة</div>
+<div style="color:white; font-size:13px; font-weight:700;">{tourism_label}</div>
+</div>
+<div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:8px; text-align:center;">
+<div style="color:#94a3b8; font-size:10px;">مستوى الدخل</div>
+<div style="color:white; font-size:13px; font-weight:700;">{income_label}</div>
+</div>
+<div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:8px; text-align:center;">
+<div style="color:#94a3b8; font-size:10px;">نقطة عبور</div>
+<div style="color:white; font-size:12px;">{is_transit}</div>
+</div>
+<div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:8px; text-align:center;">
+<div style="color:#94a3b8; font-size:10px;">جامعة</div>
+<div style="color:white; font-size:12px;">{has_uni}</div>
+</div>
+<div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:8px; text-align:center;">
+<div style="color:#94a3b8; font-size:10px;">زراعية</div>
+<div style="color:white; font-size:12px;">{is_agri}</div>
+</div>
+</div>
+{f'<div style="color:#86efac; font-size:11px; margin-bottom:4px;">✓ قطاعات قوية: {strong}</div>' if strong else ''}
+{f'<div style="color:#fca5a5; font-size:11px; margin-bottom:4px;">✗ قطاعات ضعيفة: {weak}</div>' if weak else ''}
+{f'<div style="color:#94a3b8; font-size:11px; margin-top:4px;">💡 {notes}</div>' if notes else ''}
+</div>""", unsafe_allow_html=True)
+
+        # تحذيرات الطلب المعدوم
+        ei_data = a.get('economic_intelligence', {})
+        zero_warnings = ei_data.get('zero_demand_warnings', []) if ei_data else []
+        if zero_warnings:
+            warn_items = "".join([
+                f'<div style="color:#fbbf24; font-size:12px; margin:4px 0;">⚠️ <b>{CATEGORIES.get(w["cat"],{}).get("name", w["cat"])}</b>: {w["message"]}</div>'
+                for w in zero_warnings
+            ])
+            st.markdown(f"""<div style="background:rgba(251,191,36,0.08); border:1px solid #f59e0b; border-radius:10px; padding:12px; margin-bottom:12px;">
+<div style="color:#fbbf24; font-size:13px; font-weight:700; margin-bottom:6px;">⚠️ تحذير: أنشطة قد تبدو فرصاً لكنها غير مطلوبة في {_gn}</div>
+{warn_items}
+</div>""", unsafe_allow_html=True)
+
     _target = a.get('target_cat')
     if _target:
         all_ranked = a.get('all_ranked_activities', []) or a.get('best_activities', [])
@@ -6463,6 +6582,63 @@ else:
                 </div>
                 <div style="background:{final_lvl['color']}22; color:{final_lvl['color']}; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap;">{final_lvl['icon']} {final_lvl['level']}</div>
             </div>""", unsafe_allow_html=True)
+        # ════════════════════════════════════════════════════
+        # 🔍 الأدلة المؤيدة والمعارضة - المحلل يحاكم فكرته أولاً
+        # ════════════════════════════════════════════════════
+        if chosen:
+            dv = chosen.get('demand_validation')
+            ev = a.get('economic_intelligence', {})
+            neighbor_a = ev.get('neighbor_analysis') if ev else None
+
+            pros = []
+            cons = []
+
+            # أدلة مؤيدة
+            if chosen.get('harmony_score', 0) >= 60:
+                pros.append(f"✓ انسجام {chosen.get('harmony_score',0)}% مع المحيط")
+            synergies = chosen.get('synergies', [])
+            if synergies:
+                top = synergies[0]
+                pros.append(f"✓ ترابط قوي مع {top['icon']} {top['name']} ({top['count']} محل)")
+            if chosen.get('existing', 0) == 0:
+                pros.append("✓ لا يوجد منافس مباشر مسجّل في النطاق")
+            if neighbor_a and neighbor_a.get('has_good'):
+                good = neighbor_a['good_neighbors'][:1]
+                if good:
+                    pros.append(f"✓ جار مناسب: {good[0]['reason']}")
+
+            # أدلة معارضة
+            if dv and dv.get('has_prerequisite') and not dv.get('is_valid'):
+                for fail in dv.get('fail_reasons', [])[:2]:
+                    cons.append(fail)
+            if chosen.get('saturation_veto'):
+                cons.append(f"✗ {chosen['saturation_veto']}: منافسة شديدة في السوق")
+            if chosen.get('existing', 0) == 0 and sum(len(v) for v in pbc.values()) >= 60:
+                cons.append("✗ الغياب في منطقة كثيفة = احتمال فجوة بيانات لا فرصة")
+            if neighbor_a and neighbor_a.get('has_bad'):
+                bad = neighbor_a['bad_neighbors'][:1]
+                if bad:
+                    cons.append(f"✗ جار سيء قريب: {bad[0]['reason']}")
+
+            if pros or cons:
+                pros_html = "".join([f'<div style="color:#86efac;font-size:12px;margin:3px 0;">✓ {p[2:] if p.startswith("✓ ") else p}</div>' for p in pros])
+                cons_html = "".join([f'<div style="color:#fca5a5;font-size:12px;margin:3px 0;">✗ {c[2:] if c.startswith("✗ ") else c}</div>' for c in cons])
+                verdict_color = "#10b981" if len(pros) > len(cons) else "#f59e0b" if len(pros) == len(cons) else "#ef4444"
+                verdict_text = "الأدلة تؤيد" if len(pros) > len(cons) else "الأدلة متعادلة" if len(pros) == len(cons) else "الأدلة تعارض"
+                st.markdown(f"""<div style="background:#0f172a; border:1px solid #1e293b; border-radius:12px; padding:14px; margin:10px 0;">
+<div style="color:{verdict_color}; font-size:13px; font-weight:700; margin-bottom:10px;">⚖️ ميزان الأدلة — {verdict_text}</div>
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+<div style="background:rgba(16,185,129,0.08); border-radius:8px; padding:10px;">
+<div style="color:#86efac; font-size:11px; font-weight:700; margin-bottom:6px;">أدلة تؤيد ({len(pros)})</div>
+{pros_html if pros_html else '<div style="color:#475569;font-size:12px;">لا توجد أدلة قوية</div>'}
+</div>
+<div style="background:rgba(239,68,68,0.08); border-radius:8px; padding:10px;">
+<div style="color:#fca5a5; font-size:11px; font-weight:700; margin-bottom:6px;">أدلة تعارض ({len(cons)})</div>
+{cons_html if cons_html else '<div style="color:#475569;font-size:12px;">لا توجد اعتراضات</div>'}
+</div>
+</div>
+</div>""", unsafe_allow_html=True)
+
         chosen_score = chosen.get('final_opportunity', 0) if chosen else 0
         alternatives = [r for r in all_ranked
                         if r['cat_key'] != _target
