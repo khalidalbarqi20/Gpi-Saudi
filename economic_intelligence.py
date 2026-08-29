@@ -972,7 +972,6 @@ GOOD_NEIGHBORS: Dict[str, List[dict]] = {
         {"cat": "fitness_center", "reason": "بعد التمرين = قهوة", "boost": 15},
         {"cat": "clothing_store", "reason": "راحة أثناء التسوق", "boost": 15},
         {"cat": "ev_charging_station", "reason": "انتظار الشحن = قهوة", "boost": 18},
-        {"cat": "bank", "reason": "انتظار الدور", "boost": 10},
         {"cat": "bookstore", "reason": "ثقافة القراءة والقهوة", "boost": 15},
     ],
     "pharmacy": [
@@ -984,7 +983,6 @@ GOOD_NEIGHBORS: Dict[str, List[dict]] = {
     ],
     "restaurant": [
         {"cat": "cinema", "reason": "الخروج العائلي", "boost": 20},
-        {"cat": "mosque", "reason": "وجبة ما بعد الصلاة", "boost": 18},
         {"cat": "hotel", "reason": "ضيافة النزلاء", "boost": 20},
         {"cat": "hospital", "reason": "طعام المرافقين", "boost": 15},
         {"cat": "shopping", "reason": "وجبة أثناء التسوق", "boost": 15},
@@ -1012,11 +1010,9 @@ GOOD_NEIGHBORS: Dict[str, List[dict]] = {
         {"cat": "pharmacy", "reason": "رحلة احتياجات يومية", "boost": 20},
         {"cat": "bakery", "reason": "خبز طازج مع البقالة", "boost": 18},
         {"cat": "butcher", "reason": "مشتريات المطبخ الكاملة", "boost": 18},
-        {"cat": "atm", "reason": "سحب نقدي للتسوق", "boost": 12},
     ],
     "services": [
         {"cat": "school", "reason": "طلاب يحتاجون قرطاسية وطباعة", "boost": 22},
-        {"cat": "bank", "reason": "توثيق + طباعة", "boost": 18},
         {"cat": "government_office", "reason": "معاملات تحتاج طباعة", "boost": 20},
     ],
     "fuel": [
@@ -1127,7 +1123,7 @@ def analyze_neighbors(target_cat: str, pbc: dict, radius_km: float = 2.0) -> dic
 AREA_IDENTITY_PATTERNS = {
     "educational_hub": {
         "name": "حي تعليمي", "icon": "📚",
-        "indicators": ["school","library","training_center","quran_school","services"],
+        "indicators": ["school","library","training_center","services"],
         "min_indicators": 2,
         "description": "الطلاب وأولياء الأمور هم المحرك الرئيسي",
         "strong_opportunities": ["bakery","fast_food","sweets","mobile_repair","services"],
@@ -1159,7 +1155,7 @@ AREA_IDENTITY_PATTERNS = {
     },
     "residential_service": {
         "name": "حي سكني خدماتي", "icon": "🏘️",
-        "indicators": ["grocery","pharmacy","mosque","school","bakery"],
+        "indicators": ["grocery","pharmacy","school","bakery"],
         "min_indicators": 3,
         "description": "حي سكني متكامل - الاحتياجات اليومية تحرك الاقتصاد",
         "strong_opportunities": ["clinic","barber","beauty_salon","cleaning","gas_supply"],
@@ -1167,27 +1163,24 @@ AREA_IDENTITY_PATTERNS = {
     },
     "commercial_center": {
         "name": "مركز تجاري", "icon": "🏬",
-        "indicators": ["shopping","clothing_store","electronics_store","bank","atm"],
-        "min_indicators": 3,
+        "indicators": ["shopping","clothing_store","electronics_store"],
+        "min_indicators": 2,
         "description": "التسوق والأعمال هو المحرك",
         "strong_opportunities": ["restaurant","cafe","parking","services"],
         "weak_opportunities": ["school","agricultural_equipment"],
     },
     "tourism_area": {
         "name": "منطقة سياحية", "icon": "🗺️",
-        "indicators": ["hotel","tourist_attraction","museum","restaurant","shopping"],
+        # 🔧 إصلاح جوهري: كانت القائمة تضم "restaurant" و"shopping" كمؤشرات
+        # سياحة - وهما فئتان شبه موجودتين في أي حي عادي، ما يخليهما مؤشراً
+        # حقيقياً على وجود سياحة. أي منطقة فيها مطعم واحد + محل تسوق واحد
+        # كانت تدخل هذا التصنيف حتى بدون أي بنية سياحية فعلية.
+        # المؤشرات الآن مقصورة على ما يدل فعلاً على سياحة، والعتبة رُفعت.
+        "indicators": ["hotel","tourist_attraction","museum"],
         "min_indicators": 2,
         "description": "الزوار هم المستهدف - موسمية عالية",
-        "strong_opportunities": ["cafe","car_rental","souvenir"],
+        "strong_opportunities": ["cafe","car_rental"],
         "weak_opportunities": ["auto_repair","school","hardware"],
-    },
-    "government_hub": {
-        "name": "منطقة حكومية", "icon": "🏛️",
-        "indicators": ["bank","services","atm","government_office"],
-        "min_indicators": 3,
-        "description": "موظفون وأصحاب معاملات - حركة صباحية",
-        "strong_opportunities": ["cafe","fast_food","services","pharmacy"],
-        "weak_opportunities": ["cinema","fitness_center","hotel"],
     },
 }
 
@@ -1230,9 +1223,6 @@ SAUDI_TRIP_CHAINS = [
     {"id":"hospital_journey","name":"رحلة الرعاية الصحية","icon":"🏥",
      "description":"مريض + مرافقون = احتياجات متعددة",
      "stops":["clinic","pharmacy","medical_lab","cafe"],"time":"08:00-14:00"},
-    {"id":"friday_journey","name":"رحلة الجمعة","icon":"🕌",
-     "description":"ما بعد صلاة الجمعة",
-     "stops":["mosque","restaurant","grocery","sweets"],"time":"12:00-15:00"},
     {"id":"car_service","name":"رحلة خدمة السيارة","icon":"🚗",
      "description":"غسيل + صيانة + قهوة",
      "stops":["fuel","car_wash","cafe","auto_repair"],"time":"مرنة"},
@@ -1249,8 +1239,8 @@ SAUDI_TRIP_CHAINS = [
      "description":"رياضة + عناية + قهوة",
      "stops":["fitness_center","beauty_salon","cafe","clothing_store"],"time":"07:00-11:00"},
     {"id":"government_trip","name":"رحلة المعاملات","icon":"🏛️",
-     "description":"بنك + طباعة + كافيه",
-     "stops":["bank","services","cafe","fast_food"],"time":"08:00-14:00"},
+     "description":"معاملات + طباعة + كافيه",
+     "stops":["services","cafe","fast_food"],"time":"08:00-14:00"},
 ]
 
 
@@ -1292,28 +1282,28 @@ SUCCESSFUL_AREA_PROFILES = {
         "name": "حي سكني متوسط - الرياض", "density": "سكني متوسط",
         "pop_range": (20000, 80000),
         "typical": {"grocery":3,"pharmacy":2,"restaurant":5,"cafe":4,"fast_food":3,
-                    "school":2,"mosque":3,"bakery":2,"barber":2,"beauty_salon":1,"clinic":2},
+                    "school":2,"bakery":2,"barber":2,"beauty_salon":1,"clinic":2},
         "success_keys": ["cafe","grocery","bakery"],
     },
     "commercial_strip": {
         "name": "شارع تجاري رئيسي", "density": "حضري",
         "pop_range": (50000, 200000),
         "typical": {"restaurant":10,"cafe":8,"fast_food":6,"shopping":5,"clothing_store":4,
-                    "bank":3,"atm":5,"beauty_salon":3,"fitness_center":2,"services":4},
+                    "beauty_salon":3,"fitness_center":2,"services":4},
         "success_keys": ["cafe","restaurant","shopping"],
     },
     "university_area": {
         "name": "منطقة جامعية", "density": "سكني متوسط",
         "pop_range": (30000, 100000),
         "typical": {"cafe":10,"fast_food":8,"restaurant":6,"grocery":4,"bakery":3,
-                    "fitness_center":3,"mobile_repair":4,"clothing_store":3,"atm":4,"barber":3},
+                    "fitness_center":3,"mobile_repair":4,"clothing_store":3,"barber":3},
         "success_keys": ["cafe","fast_food","mobile_repair"],
     },
     "medical_zone": {
         "name": "منطقة طبية", "density": "سكني محدود",
         "pop_range": (10000, 50000),
         "typical": {"pharmacy":6,"clinic":8,"hospital":2,"medical_lab":3,
-                    "cafe":4,"restaurant":5,"fast_food":3,"hotel":2,"atm":3},
+                    "cafe":4,"restaurant":5,"fast_food":3,"hotel":2},
         "success_keys": ["pharmacy","cafe","restaurant"],
     },
     "transit_town": {

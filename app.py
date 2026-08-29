@@ -131,14 +131,10 @@ CATEGORIES = {
     "tourist_attraction": {"name": "معالم سياحية", "icon": "🗺️", "color": "#a855f7", "group": "ترفيه"},
     "nightclub": {"name": "ترفيه ليلي", "icon": "🎵", "color": "#be185d", "group": "ترفيه"},
     "library": {"name": "مكتبات", "icon": "📚", "color": "#a16207", "group": "ترفيه"},
-    # مالية
-    "atm": {"name": "صرّاف آلي", "icon": "🏧", "color": "#059669", "group": "مالية"},
-    "bank": {"name": "بنوك", "icon": "🏦", "color": "#047857", "group": "مالية"},
     # سفر
     "hotel": {"name": "فنادق", "icon": "🏨", "color": "#0891b2", "group": "سفر"},
-    # تعليم وديني
+    # تعليم
     "school": {"name": "مدارس", "icon": "🏫", "color": "#ca8a04", "group": "تعليم"},
-    "mosque": {"name": "مساجد", "icon": "🕌", "color": "#65a30d", "group": "ديني"},
     # ════════════════════════════════════════════════════════════
     # 🆕 فئات جديدة - تصنيف هرمي (شخص/منزل/سيارة/جوال/خدمات)
     # هذه الفئات تعتمد بشكل رئيسي على OSM (Mapbox لا يدعمها)
@@ -180,7 +176,6 @@ CATEGORIES = {
     # 💇 عناية شخصية
     "barber": {"name": "حلاق رجالي", "icon": "✂️", "color": "#1f2937", "group": "عناية"},
     # 🎓 تعليم متخصص
-    "quran_school": {"name": "تحفيظ قرآن", "icon": "📖", "color": "#15803d", "group": "تعليم"},
     "training_center": {"name": "مركز تدريب", "icon": "🎓", "color": "#0e7490", "group": "تعليم"},
     # 🏥 صحة متخصصة
     "dentist": {"name": "عيادة أسنان", "icon": "🦷", "color": "#0891b2", "group": "صحة"},
@@ -252,7 +247,7 @@ HIERARCHICAL_NEEDS = {
         'sector': 'الشخص',
         'tiers': {
             'essential': ['school'],
-            'needed': ['quran_school', 'training_center'],
+            'needed': ['training_center'],
             'extra': ['library'],
         }
     },
@@ -326,28 +321,8 @@ HIERARCHICAL_NEEDS = {
             'extra': ['mobile_accessories', 'electronics_store'],
         }
     },
-
-    # ───────────── 💰 المالية ─────────────
-    'finance': {
-        'name': '💰 خدمات مالية',
-        'sector': 'مالي',
-        'tiers': {
-            'essential': ['atm'],
-            'needed': ['bank'],
-            'extra': [],
-        }
-    },
-
-    # ───────────── 🕌 الديني والمجتمعي ─────────────
-    'religious': {
-        'name': '🕌 ديني',
-        'sector': 'مجتمعي',
-        'tiers': {
-            'essential': ['mosque'],
-            'needed': [],
-            'extra': [],
-        }
-    },
+    # 🔧 إصلاح: قطاعا "المالية" (atm/bank) و"الديني" (mosque) حُذفا بالكامل
+    # بطلب صريح - هذه بنية تحتية مؤسسية/دينية وليست أنشطة استثمارية فردية
 
     # ───────────── 🎭 الترفيه ونمط الحياة ─────────────
     'entertainment': {
@@ -436,7 +411,7 @@ FAMILY_GROUPS = {
     "daily_essentials": {
         "name": "الاحتياجات اليومية",
         "icon": "🛒",
-        "members": ["grocery", "pharmacy", "atm", "bank"]
+        "members": ["grocery", "pharmacy"]
     },
     # 🚗 عائلة السيارات
     "automotive": {
@@ -474,13 +449,13 @@ FAMILY_GROUPS = {
     "education_community": {
         "name": "التعليم والمجتمع",
         "icon": "🏫",
-        "members": ["school", "library", "mosque"]
+        "members": ["school", "library"]
     },
     # 🔧 عائلة الخدمات
     "services": {
         "name": "الخدمات العامة",
         "icon": "🔧",
-        "members": ["services", "atm", "bank"]
+        "members": ["services"]
     },
 }
 
@@ -521,13 +496,7 @@ CHEMISTRY = {
     ("grocery", "pharmacy"): "strong",
     ("pharmacy", "grocery"): "strong",
     # بقالة/صيدلية + صراف
-    ("grocery", "atm"): "medium",
-    ("atm", "grocery"): "medium",
-    ("pharmacy", "atm"): "medium",
-    ("atm", "pharmacy"): "medium",
     # بقالة/صيدلية + بنك
-    ("grocery", "bank"): "medium",
-    ("bank", "grocery"): "medium",
     # بقالة + مخبز/مطعم (شائع في السعودية)
     ("grocery", "restaurant"): "medium",
     ("restaurant", "grocery"): "medium",
@@ -558,8 +527,6 @@ CHEMISTRY = {
     ("fuel", "ev_charging_station"): "medium",
     ("ev_charging_station", "fuel"): "medium",
     # وقود + صراف
-    ("fuel", "atm"): "medium",
-    ("atm", "fuel"): "medium",
     # المغسلة + الحلاق (مثالك الشهير - الانتظار = خدمة)
     ("car_wash", "beauty_salon"): "strong",
     ("beauty_salon", "car_wash"): "strong",
@@ -583,8 +550,6 @@ CHEMISTRY = {
     ("car_dealer", "car_rental"): "medium",
     ("car_rental", "car_dealer"): "medium",
     # معرض سيارات + تمويل/بنك
-    ("car_dealer", "bank"): "medium",
-    ("bank", "car_dealer"): "medium",
     # شحن كهربائي + كافيه (الانتظار 30-60 دقيقة)
     ("ev_charging_station", "cafe"): "strong",
     ("cafe", "ev_charging_station"): "strong",
@@ -732,25 +697,13 @@ CHEMISTRY = {
     ("library", "school"): "strong",
     ("school", "library"): "strong",
     # مسجد + كل شي تقريباً (مركز المجتمع)
-    ("mosque", "grocery"): "medium",
-    ("grocery", "mosque"): "medium",
-    ("mosque", "restaurant"): "medium",
-    ("restaurant", "mosque"): "medium",
 
     # ══════════════════════════════════════════════════
     # 🏦 ترابطات المالية
     # ══════════════════════════════════════════════════
     # بنك + صراف (مكملان)
-    ("bank", "atm"): "strong",
-    ("atm", "bank"): "strong",
     # بنك + تسوق (سحب نقدي قبل التسوق)
-    ("bank", "shopping"): "medium",
-    ("shopping", "bank"): "medium",
-    ("atm", "shopping"): "medium",
-    ("shopping", "atm"): "medium",
     # بنك + مطعم
-    ("atm", "restaurant"): "medium",
-    ("restaurant", "atm"): "medium",
 
     # ══════════════════════════════════════════════════
     # ❌ منافسات مباشرة (نفس الزبون والمنتج)
@@ -969,7 +922,6 @@ def _explain_synergy(cat_a, cat_b):
         ("sporting_goods", "fitness_center"): "نفس الجمهور الرياضي",
         ("fitness_center", "beauty_salon"): "العناية بالصحة والجمال",
         ("grocery", "pharmacy"): "احتياجات يومية في رحلة واحدة",
-        ("bank", "atm"): "خدمات مالية متكاملة",
         ("car_dealer", "car_rental"): "نفس المهتم بالسيارات",
         ("library", "school"): "موارد تعليمية",
     }
@@ -1459,8 +1411,8 @@ MAPBOX_SUPPORTED = {
     'grocery', 'services', 'auto_repair', 'car_wash', 'car_dealer',
     'car_rental', 'ev_charging_station', 'parking', 'hospital', 'clinic',
     'beauty_salon', 'park', 'fitness_center', 'cinema', 'museum',
-    'tourist_attraction', 'nightclub', 'library', 'atm', 'bank',
-    'hotel', 'school', 'mosque',
+    'tourist_attraction', 'nightclub', 'library',
+    'hotel', 'school',
 }
 
 
@@ -1620,10 +1572,7 @@ MAPBOX_TO_OSM = {
     'clinic': [('amenity', 'clinic'), ('healthcare', 'clinic')],
     'hospital': [('amenity', 'hospital')],
     'school': [('amenity', 'school'), ('amenity', 'kindergarten')],
-    'mosque': [('amenity', 'place_of_worship'), ('religion', 'muslim')],
     'fuel': [('amenity', 'fuel')],
-    'bank': [('amenity', 'bank')],
-    'atm': [('amenity', 'atm')],
     'hotel': [('tourism', 'hotel'), ('tourism', 'guest_house')],
     'tourist_attraction': [('tourism', 'attraction'), ('tourism', 'museum')],
     'museum': [('tourism', 'museum')],
@@ -1678,7 +1627,6 @@ MAPBOX_TO_OSM = {
     # عناية شخصية
     'barber': [('shop', 'hairdresser'), ('craft', 'hairdresser')],
     # تعليم
-    'quran_school': [('amenity', 'school')],  # تحفيظ - يصعب التمييز
     'training_center': [('amenity', 'training'), ('office', 'educational_institution')],
     # صحة
     'dentist': [('amenity', 'dentist'), ('healthcare', 'dentist')],
@@ -1997,13 +1945,9 @@ MAPBOX_TO_GOOGLE_PLACES = {
     'dentist': 'dentist',
     'medical_lab': 'medical_lab',
     'school': 'school',
-    'quran_school': 'school',
     'training_center': 'school',
-    'mosque': 'mosque',
     'fuel': 'gas_station',
     'ev_charging_station': 'electric_vehicle_charging_station',
-    'bank': 'bank',
-    'atm': 'atm',
     'hotel': 'hotel',
     'tourist_attraction': 'tourist_attraction',
     'museum': 'museum',
@@ -2069,8 +2013,6 @@ MAPBOX_TO_FOURSQUARE = {
     'hospital': '15014',
     'school': '12058',
     'fuel': '19007',
-    'bank': '11045',
-    'atm': '11044',
     'hotel': '19014',
     'tourist_attraction': '16041',
     'museum': '10027',
@@ -2695,7 +2637,6 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         'butcher': {'demand_map': {'عائلي': 85, 'شبابي': 65, 'تجاري': 65, 'طعام': 80, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
         'vegetables': {'demand_map': {'عائلي': 85, 'شبابي': 60, 'تجاري': 70, 'طعام': 80, 'خدماتي': 90, 'غير محدد': 80}, 'cap': 4},
         'barber': {'demand_map': {'عائلي': 75, 'شبابي': 80, 'تجاري': 65, 'طعام': 35, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 5},
-        'quran_school': {'demand_map': {'عائلي': 90, 'شبابي': 50, 'تجاري': 45, 'طعام': 30, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
         'training_center': {'demand_map': {'عائلي': 55, 'شبابي': 70, 'تجاري': 70, 'طعام': 25, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 3},
         'dentist': {'demand_map': {'عائلي': 85, 'شبابي': 65, 'تجاري': 65, 'طعام': 35, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
         'medical_lab': {'demand_map': {'عائلي': 85, 'شبابي': 65, 'تجاري': 65, 'طعام': 35, 'خدماتي': 80, 'غير محدد': 65}, 'cap': 3},
@@ -2725,8 +2666,8 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         'veterinary': {'demand_map': {'عائلي': 65, 'شبابي': 50, 'تجاري': 45, 'طعام': 20, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 2},
         'pet_shop': {'demand_map': {'عائلي': 55, 'شبابي': 55, 'تجاري': 45, 'طعام': 20, 'خدماتي': 45, 'غير محدد': 45}, 'cap': 2},
         # ════════════════════════════════════════════════════════
-        # مستبعدة عمداً من الترشيح (وليس نسياناً): مسجد (وقف/حكومي)،
-        # صرّاف آلي وبنك (فروع مؤسسات مالية مرخّصة، ليست استثماراً فردياً قابلاً للفتح)
+        # 🔧 المسجد وتحفيظ القرآن والصرّاف الآلي والبنك حُذفت بالكامل
+        # من النظام (CATEGORIES نفسها) بطلب صريح - لا تُمسح ولا تُصنَّف إطلاقاً
         # ════════════════════════════════════════════════════════
     }
 
@@ -2759,6 +2700,7 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         # ════════════════════════════════════════════════════════
         demand_validation = None
         demand_penalty_reason = None
+        demand_hard_cap = None  # 🔧 سيُعاد تطبيقه بعد دمج الكيمياء - انظر أسفل
         if EI_AVAILABLE and gov_profile and existing == 0:
             try:
                 from economic_intelligence import validate_demand
@@ -2769,11 +2711,13 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
                         # غياب طلب كامل - عقوبة شديدة
                         opportunity = min(opportunity, 20)
                         demand = min(demand, 30)
+                        demand_hard_cap = 20
                         demand_penalty_reason = f"⛔ {demand_validation['fail_reasons'][0] if demand_validation['fail_reasons'] else demand_validation['verdict']}"
                     elif score_val < 40:
                         # طلب ضعيف - عقوبة متوسطة
                         opportunity = min(opportunity, 35)
                         demand = min(demand, 50)
+                        demand_hard_cap = 35
                         demand_penalty_reason = f"⚠️ طلب محدود: {demand_validation['fail_reasons'][0] if demand_validation['fail_reasons'] else ''}"
             except Exception:
                 pass
@@ -2784,7 +2728,7 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         if existing == 0 and total_in_area >= 60:
             common_cats = {'cafe', 'restaurant', 'fast_food', 'grocery', 'pharmacy',
                            'beauty_salon', 'clothing_store', 'shopping', 'services',
-                           'auto_repair', 'bank', 'atm', 'clinic'}
+                           'auto_repair', 'clinic'}
             if cat in common_cats:
                 data_gap_zero = True
                 opportunity = min(opportunity, 45)
@@ -2831,6 +2775,7 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             'opportunity_score': opportunity,
             'data_gap_zero': data_gap_zero,
             'demand_validation': demand_validation,
+            'demand_hard_cap': demand_hard_cap,
             'reasons': reasons[:3] if reasons else ["تحليل قياسي"],
         })
 
@@ -2913,6 +2858,15 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             # المعادلة الأساسية: 40% فرصة + 60% انسجام
             final_opp = int((original_opp * 0.4) + (harmony * 0.6))
 
+            # 🚨 إصلاح جوهري: فيتو الطلب يجب أن يبقى سقفاً صلباً حتى بعد
+            # دمج الانسجام - وإلا فانسجام عالٍ (قرب مطاعم مثلاً) يُلغي عملياً
+            # تحذيراً صريحاً مثل "السكان أقل من الحد الأدنى - لن يجد جمهوراً".
+            # هذا بالضبط سبب ظهور "سينما" بفرصة 76% رغم تحذير النظام نفسه
+            # بأن الطلب غير موجود أصلاً - كان السقف يُطبَّق فقط على الرقم
+            # الأصلي قبل الدمج، فيذوب أثره في المعادلة الموزونة.
+            if r.get('demand_hard_cap') is not None:
+                final_opp = min(final_opp, r['demand_hard_cap'])
+
             # 🔴 سقف فجوة البيانات: "0 منافس" في منطقة كثيفة لا يُمنح فرصة عالية
             if r.get('data_gap_zero'):
                 final_opp = min(final_opp, 50)
@@ -2926,6 +2880,11 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
             # بونص العائلة الغالبة
             if chem.get('aligned_with_dominant'):
                 final_opp = min(100, final_opp + 3)
+
+            # 🚨 نعيد فرض سقف الطلب مرة أخيرة بعد كل البونصات أعلاه -
+            # حتى لا يُعاد رفعه فوق السقف ببونص الترابطات/العائلة الغالبة
+            if r.get('demand_hard_cap') is not None:
+                final_opp = min(final_opp, r['demand_hard_cap'])
             
             # 🔴 تطبيق فيتو التشبع العام
             # حتى للأنشطة المفقودة (existing=0)، لو السوق العام مشبع → خصم
