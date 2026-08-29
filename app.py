@@ -6521,7 +6521,7 @@ else:
                 for opp in journey_opps[:4]:
                     cat = opp['cat']
                     cat_info = CATEGORIES.get(cat, {})
-                    journeys_text = " • ".join([j['journey_name'] for j in opp['appears_in_journeys'][:2]])
+                    journeys_text = " • ".join([j['name'] for j in opp['journeys'][:2]])
                     st.markdown(f"""<div style="background:rgba(251,191,36,0.08); border-right:3px solid #f59e0b; padding:10px 14px; border-radius:8px; margin-bottom:8px;">
 <span style="font-size:16px;">{cat_info.get('icon','🏪')}</span>
 <span style="color:white; font-weight:600; font-size:14px; margin-right:8px;">{cat_info.get('name', cat)}</span>
@@ -6530,48 +6530,28 @@ else:
 
         # ── تاب 3: فجوة الطلب والعرض ──
         with ei_tab3:
-            need_gap = ei.get('need_gap_analysis', [])
+            # 🔧 إصلاح: 'need_gap_analysis' لم يكن موجوداً إطلاقاً في نتيجة
+            # الذكاء الاقتصادي (ميزة "Need/Gap Score" حُذفت من الملف الخلفي
+            # بتحديث سابق ولم يُبنَ بديل مطابق) - فكان هذا التاب يعرض دائماً
+            # "السوق متوازن" بغض النظر عن الواقع. الآن يعرض بيانات حقيقية
+            # فعلاً موجودة (فحص غياب الطلب الأساسي حسب طابع المحافظة).
+            zero_demand = ei.get('zero_demand_warnings', [])
 
-            st.caption("Need Score = هل يحتاجه السكان؟ | Supply Score = هل هو متوفر؟ | الفجوة = الفرصة الحقيقية")
+            st.caption("تنبيهات لأنشطة قد يكون غيابها بسبب عدم وجود طلب أصلاً - وليس فرصة")
 
-            if need_gap:
-                for item in need_gap[:6]:
+            if zero_demand:
+                for item in zero_demand[:6]:
                     cat = item['cat']
                     cat_info = CATEGORIES.get(cat, {})
-                    gap = item['gap_score']
-                    gap_color = item['gap_color']
-                    need = item['need_score']
-                    ideal = item['ideal_count']
-
                     st.markdown(f"""<div style="background:#131826; border:1px solid #1f2937; border-radius:12px; padding:14px; margin-bottom:10px;">
-<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+<div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
 <span style="font-size:20px;">{cat_info.get('icon','🏪')}</span>
-<div style="flex:1;">
 <span style="color:white; font-weight:700;">{cat_info.get('name', cat)}</span>
-<span style="color:#64748b; font-size:11px; margin-right:8px;">• مثالي: {ideal} محل</span>
 </div>
-<div style="background:rgba(0,0,0,0.3); padding:6px 14px; border-radius:999px; text-align:center;">
-<div style="color:{gap_color}; font-size:14px; font-weight:800;">{item['gap_type']}</div>
-</div>
-</div>
-<div style="display:flex; gap:8px;">
-<div style="flex:1; text-align:center; background:rgba(59,130,246,0.10); padding:8px; border-radius:8px;">
-<div style="color:#93c5fd; font-size:11px;">الطلب (Need)</div>
-<div style="color:white; font-size:18px; font-weight:700;">{need}</div>
-</div>
-<div style="flex:1; text-align:center; background:rgba(239,68,68,0.10); padding:8px; border-radius:8px;">
-<div style="color:#fca5a5; font-size:11px;">التوفر = 0</div>
-<div style="color:white; font-size:18px; font-weight:700;">0</div>
-</div>
-<div style="flex:1; text-align:center; background:rgba(0,0,0,0.2); padding:8px; border-radius:8px;">
-<div style="color:#94a3b8; font-size:11px;">الفجوة</div>
-<div style="color:{gap_color}; font-size:18px; font-weight:700;">+{gap}</div>
-</div>
-</div>
-<div style="color:#94a3b8; font-size:12px; margin-top:8px;">💡 {item['explanation']}</div>
+<div style="color:#94a3b8; font-size:12px;">💡 {item['message']}</div>
 </div>""", unsafe_allow_html=True)
             else:
-                st.info("✅ معظم الأنشطة الأساسية موجودة في المنطقة - السوق متوازن نسبياً")
+                st.info("لا توجد تنبيهات غياب طلب واضحة لهذه المنطقة - هذا لا يعني أن السوق متوازن بالضرورة، فقط لا توجد إشارة سلبية قوية من بيانات المحافظة.")
 
         # ── تاب 4: مناطق مشابهة ──
         with ei_tab4:
@@ -6588,8 +6568,8 @@ else:
                 for opp in comparable.get('opportunities', [])[:6]:
                     cat = opp['cat']
                     cat_info = CATEGORIES.get(cat, {})
-                    is_key = opp.get('is_success_indicator', False)
-                    profiles_count = opp.get('appears_in_profiles', 1)
+                    is_key = opp.get('is_key', False)
+                    profiles_count = opp.get('count', 1)
 
                     st.markdown(f"""<div style="background:{'rgba(168,85,247,0.10)' if is_key else 'rgba(255,255,255,0.02)'}; border:1px solid {'#a855f7' if is_key else '#1f2937'}; border-radius:10px; padding:12px; margin-bottom:8px; display:flex; align-items:center; gap:10px;">
 <span style="font-size:20px;">{cat_info.get('icon','🏪')}</span>
@@ -6601,7 +6581,7 @@ else:
 </div>""", unsafe_allow_html=True)
 
                 # نصيحة التوصية المبنية على أدلة
-                evidence_recs = ei.get('evidence_based_recommendations', [])
+                evidence_recs = ei.get('evidence_recommendations', [])
                 if evidence_recs:
                     st.markdown('<div style="color:#86efac; font-size:14px; font-weight:700; margin:16px 0 8px 0;">🏆 التوصيات المبنية على أدلة متعددة</div>', unsafe_allow_html=True)
                     for rec in evidence_recs[:4]:
