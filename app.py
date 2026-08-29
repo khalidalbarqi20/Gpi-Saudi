@@ -45,10 +45,11 @@ try:
         generate_economic_intelligence_report,
         discover_trip_chains,
         identify_area_identity,
-        calculate_need_score,
-        calculate_gap_score,
-        ACTIVITY_ECOSYSTEM,
-        IDEAL_DENSITY_PER_1K,
+        validate_demand,
+        get_governorate_profile,
+        GOOD_NEIGHBORS,
+        BAD_NEIGHBORS,
+        GOVERNORATE_ECONOMIC_PROFILE,
     )
     EI_AVAILABLE = True
 except ImportError:
@@ -67,6 +68,9 @@ def _read_key(name: str) -> str:
 
 GEMINI_KEY = _read_key("GEMINI_API_KEY")
 MAPBOX = _read_key("MAPBOX_TOKEN")
+# 🆕 مفتاح Google Places - يُقرأ من secrets/متغيرات البيئة فقط، لا يظهر أبداً في الواجهة
+# ولا يُطلب من المستخدم (بخلاف Foursquare الذي يُدخله المستخدم يدوياً)
+GOOGLE_PLACES_KEY = _read_key("GOOGLE_PLACES_API_KEY")
 
 AI_AVAILABLE = False
 genai = None
@@ -182,8 +186,25 @@ CATEGORIES = {
     "dentist": {"name": "عيادة أسنان", "icon": "🦷", "color": "#0891b2", "group": "صحة"},
     "medical_lab": {"name": "مختبر طبي", "icon": "🧪", "color": "#7c3aed", "group": "صحة"},
     # 🎮 ترفيه إضافي
-    "playground": {"name": "ملاعب", "icon": "⚽", "color": "#16a34a", "group": "ترفيه"},
+    "playground": {"name": "ملاعب أطفال", "icon": "⚽", "color": "#16a34a", "group": "ترفيه"},
     "game_center": {"name": "مركز ألعاب", "icon": "🎮", "color": "#a855f7", "group": "ترفيه"},
+    "sports_field_rental": {"name": "ملاعب رياضية مؤجرة (كرة قدم/بادل)", "icon": "🥅", "color": "#15803d", "group": "ترفيه"},
+    # ════════════════════════════════════════════════════════════
+    # 🆕 دفعة إضافية - فئات موجودة فعلياً على أرض الواقع كانت ناقصة تماماً
+    # ════════════════════════════════════════════════════════════
+    # 🏠 منزل - خدمات إضافية
+    "water_desalination": {"name": "محل تحلية / تعبئة مياه", "icon": "💧", "color": "#0891b2", "group": "منزل"},
+    "laundry": {"name": "مغسلة ملابس", "icon": "👔", "color": "#0ea5e9", "group": "منزل"},
+    # 🛍️ تسوق إضافي
+    "jewelry_store": {"name": "مجوهرات وذهب", "icon": "💍", "color": "#d4af37", "group": "تسوق"},
+    "perfume_shop": {"name": "عطور وبخور", "icon": "🧴", "color": "#a855f7", "group": "تسوق"},
+    "flower_shop": {"name": "ورد وزهور", "icon": "💐", "color": "#ec4899", "group": "تسوق"},
+    "optics_shop": {"name": "نظارات وبصريات", "icon": "👓", "color": "#334155", "group": "تسوق"},
+    # 🏢 خدمات مكتبية
+    "real_estate_office": {"name": "مكتب عقار", "icon": "🏢", "color": "#78350f", "group": "خدمات"},
+    # 🐾 حيوانات أليفة
+    "veterinary": {"name": "عيادة بيطرية", "icon": "🐾", "color": "#059669", "group": "حيوانات أليفة"},
+    "pet_shop": {"name": "مستلزمات حيوانات أليفة", "icon": "🐶", "color": "#0d9488", "group": "حيوانات أليفة"},
 }
 
 # ════════════════════════════════════════════════════════════════
@@ -268,8 +289,8 @@ HIERARCHICAL_NEEDS = {
         'name': '🏠 خدمات منزلية',
         'sector': 'المنزل',
         'tiers': {
-            'essential': ['gas_supply'],
-            'needed': ['locksmith', 'cleaning'],
+            'essential': ['gas_supply', 'water_desalination'],
+            'needed': ['locksmith', 'cleaning', 'laundry'],
             'extra': ['pest_control'],
         }
     },
@@ -334,9 +355,31 @@ HIERARCHICAL_NEEDS = {
         'sector': 'الترفيه',
         'tiers': {
             'essential': [],
-            'needed': ['park', 'playground'],
+            'needed': ['park', 'playground', 'sports_field_rental'],
             'extra': ['cinema', 'fitness_center', 'shopping', 'game_center',
                       'museum', 'tourist_attraction', 'sporting_goods', 'nightclub'],
+        }
+    },
+
+    # ───────────── 🛍️ تسوق متخصص ─────────────
+    'shopping_specialty': {
+        'name': '🛍️ تسوق متخصص',
+        'sector': 'تسوق',
+        'tiers': {
+            'essential': [],
+            'needed': ['optics_shop'],
+            'extra': ['jewelry_store', 'perfume_shop', 'flower_shop'],
+        }
+    },
+
+    # ───────────── 🐾 حيوانات أليفة ─────────────
+    'pets': {
+        'name': '🐾 حيوانات أليفة',
+        'sector': 'حيوانات أليفة',
+        'tiers': {
+            'essential': [],
+            'needed': ['veterinary'],
+            'extra': ['pet_shop'],
         }
     },
 
@@ -357,38 +400,17 @@ HIERARCHICAL_NEEDS = {
         'sector': 'خدمي',
         'tiers': {
             'essential': [],
-            'needed': [],
+            'needed': ['real_estate_office'],
             'extra': ['services'],
         }
     },
 }
 
-ACTIVITY_TYPES = {
-    "مطعم": "restaurant",
-    "مقهى / كافيه": "cafe",
-    "وجبات سريعة": "fast_food",
-    "محل تسوق عام": "shopping",
-    "محل ملابس": "clothing_store",
-    "محل إلكترونيات": "electronics_store",
-    "محل منزلي / أثاث": "home_garden",
-    "محل رياضي": "sporting_goods",
-    "صيدلية": "pharmacy",
-    "بقالة / سوبر ماركت": "grocery",
-    "محطة وقود": "fuel",
-    "خدمات عامة": "services",
-    "صيانة سيارات": "auto_repair",
-    "مغسلة سيارات": "car_wash",
-    "معرض سيارات": "car_dealer",
-    "تأجير سيارات": "car_rental",
-    "محطة شحن كهربائي": "ev_charging_station",
-    "مستشفى / مجمع طبي": "hospital",
-    "عيادة": "clinic",
-    "صالون تجميل / حلاقة": "beauty_salon",
-    "نادي رياضي / جيم": "fitness_center",
-    "سينما": "cinema",
-    "بنك / صرّاف": "bank",
-    "فندق / شقق فندقية": "hotel",
-}
+# 🔧 إصلاح: كان هذا القاموس يُكتب يدوياً بمعزل عن CATEGORIES فيتكرر نسيان
+# تحديثه كل ما تُضاف فئة جديدة (كانت 43 من 67 فئة غائبة تماماً عن قائمة
+# "النشاط المستهدف" رغم مسحها فعلياً في التحليل). الآن يُبنى تلقائياً من
+# CATEGORIES نفسها - مصدر واحد للحقيقة، يستحيل يختلف عنها بعد اليوم.
+ACTIVITY_TYPES = {info['name']: cat for cat, info in CATEGORIES.items()}
 
 
 # ============================================================================
@@ -1662,7 +1684,20 @@ MAPBOX_TO_OSM = {
     'dentist': [('amenity', 'dentist'), ('healthcare', 'dentist')],
     'medical_lab': [('healthcare', 'laboratory')],
     # ترفيه
-    'playground': [('leisure', 'playground'), ('leisure', 'pitch')],
+    'playground': [('leisure', 'playground')],
+    # 🆕 ملاعب رياضية مؤجرة (كرة قدم مصغرة/بادل) - كانت مدمجة خطأً مع playground
+    # (نفس وسم leisure=pitch كان يُحتسب مرتين تحت فئتين مختلفتين)
+    'sports_field_rental': [('leisure', 'pitch'), ('leisure', 'sports_centre')],
+    # 🆕 فئات إضافية طلبها خالد - موجودة فعلياً على أرض الواقع
+    'water_desalination': [('shop', 'water')],
+    'laundry': [('shop', 'laundry'), ('shop', 'dry_cleaning')],
+    'jewelry_store': [('shop', 'jewelry')],
+    'perfume_shop': [('shop', 'perfumery')],
+    'flower_shop': [('shop', 'florist')],
+    'optics_shop': [('shop', 'optician')],
+    'real_estate_office': [('office', 'estate_agent')],
+    'veterinary': [('amenity', 'veterinary')],
+    'pet_shop': [('shop', 'pet')],
     'game_center': [('leisure', 'amusement_arcade'), ('leisure', 'adult_gaming_centre')],
     # 🔧 إصلاح: فئات كانت بلا أي مصدر (كانت ترجع 0 دائماً)
     'home_garden': [('shop', 'doityourself'), ('shop', 'hardware'), ('shop', 'garden_centre'), ('shop', 'houseware')],
@@ -1945,6 +1980,84 @@ out tags geom;"""
     }
 # ════════════════════════════════════════════════════════════════
 
+# تحويل فئات Mapbox → Google Places API (New) type strings (Table A)
+# مرجع: https://developers.google.com/maps/documentation/places/web-service/place-types
+MAPBOX_TO_GOOGLE_PLACES = {
+    'restaurant': 'restaurant',
+    'cafe': 'cafe',
+    'fast_food': 'fast_food_restaurant',
+    'bakery': 'bakery',
+    'sweets': 'candy_store',
+    'butcher': 'butcher_shop',
+    'grocery': 'supermarket',
+    'vegetables': 'grocery_store',
+    'pharmacy': 'pharmacy',
+    'clinic': 'doctor',
+    'hospital': 'hospital',
+    'dentist': 'dentist',
+    'medical_lab': 'medical_lab',
+    'school': 'school',
+    'quran_school': 'school',
+    'training_center': 'school',
+    'mosque': 'mosque',
+    'fuel': 'gas_station',
+    'ev_charging_station': 'electric_vehicle_charging_station',
+    'bank': 'bank',
+    'atm': 'atm',
+    'hotel': 'hotel',
+    'tourist_attraction': 'tourist_attraction',
+    'museum': 'museum',
+    'park': 'park',
+    'playground': 'playground',
+    'fitness_center': 'gym',
+    'shopping': 'shopping_mall',
+    'clothing_store': 'clothing_store',
+    'shoe_shop': 'shoe_store',
+    'abaya_shop': 'clothing_store',
+    'electronics_store': 'electronics_store',
+    'mobile_repair': 'electronics_store',
+    'mobile_accessories': 'electronics_store',
+    'home_garden': 'hardware_store',
+    'furniture': 'furniture_store',
+    'lighting': 'furniture_store',
+    'curtains': 'home_goods_store',
+    'sporting_goods': 'sporting_goods_store',
+    'auto_repair': 'car_repair',
+    'car_wash': 'car_wash',
+    'car_dealer': 'car_dealer',
+    'car_rental': 'car_rental',
+    'tyre_shop': 'car_repair',
+    'auto_parts': 'car_repair',
+    'oil_change': 'car_repair',
+    'car_tinting': 'car_repair',
+    'upholstery': 'car_repair',
+    'beauty_salon': 'beauty_salon',
+    'barber': 'barber_shop',
+    'cinema': 'movie_theater',
+    'nightclub': 'night_club',
+    'game_center': 'amusement_center',
+    'library': 'library',
+    'parking': 'parking',
+    'plumber': 'plumber',
+    'electrician': 'electrician',
+    'painter': 'painter',
+    'locksmith': 'locksmith',
+    'cleaning': 'moving_company',  # 🔧 إصلاح: كانت 'laundry' خطأً (خدمة تنظيف منازل وليست مغسلة ملابس)
+    'tailor': 'clothing_store',
+    # 🆕 فئات إضافية - أنواع Google موثّقة رسمياً (تحققت من جدول Table A)
+    'laundry': 'laundry',
+    'jewelry_store': 'jewelry_store',
+    'perfume_shop': None,  # لا يوجد نوع رسمي مطابق عند Google - يبقى بدون مصدر Google
+    'flower_shop': 'florist',
+    'optics_shop': None,   # لا يوجد نوع رسمي مطابق - يبقى بدون مصدر Google
+    'real_estate_office': 'real_estate_agency',
+    'veterinary': 'veterinary_care',
+    'pet_shop': 'pet_store',
+    'water_desalination': None,  # لا يوجد نوع رسمي مطابق عند Google - OSM فقط
+    'sports_field_rental': 'stadium',
+}
+
+
 # تحويل فئات Mapbox → Foursquare category IDs
 MAPBOX_TO_FOURSQUARE = {
     'restaurant': '13065',
@@ -2070,6 +2183,101 @@ def search_foursquare(lat, lng, radius_km, api_key, cats_to_search=None):
     return results
 
 
+def search_google_places(lat, lng, radius_km, api_key, cats_to_search=None):
+    """
+    🆕 البحث عبر Google Places API (New) - Nearby Search.
+    Endpoint: POST https://places.googleapis.com/v1/places:searchNearby
+
+    🔧 إصلاح أداء: كانت الاستدعاءات تُنفَّذ بالتتابع (فئة بفئة) - حتى 61 طلب HTTP
+    متتالي ببطء ملحوظ في وقت التحليل الكلي. الآن تُنفَّذ بالتوازي (ThreadPoolExecutor)
+    فيكون الوقت الكلي بحدود وقت أبطأ طلب واحد بدل مجموع كل الطلبات.
+    """
+    if not api_key:
+        return {}
+
+    cats_to_search = cats_to_search or list(MAPBOX_TO_GOOGLE_PLACES.keys())
+    radius_m = min(int(radius_km * 1000), 50000)  # الحد الأقصى المسموح عند Google 50كم
+
+    url = "https://places.googleapis.com/v1/places:searchNearby"
+    headers = {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': api_key,
+        'X-Goog-FieldMask': (
+            'places.displayName,places.location,places.rating,'
+            'places.userRatingCount,places.businessStatus,places.formattedAddress,'
+            'places.id'
+        ),
+    }
+
+    results = {cat: [] for cat in cats_to_search}
+
+    def _fetch_one(cat):
+        g_type = MAPBOX_TO_GOOGLE_PLACES.get(cat)
+        if not g_type:
+            return cat, []
+        body = {
+            "includedTypes": [g_type],
+            "maxResultCount": 20,
+            "locationRestriction": {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lng},
+                    "radius": float(radius_m),
+                }
+            },
+            "languageCode": "ar",
+        }
+        try:
+            r = requests.post(url, json=body, headers=headers, timeout=8)
+            if r.status_code != 200:
+                return cat, []
+            data = r.json()
+        except Exception:
+            return cat, []
+
+        places_out = []
+        for place in data.get('places', []):
+            name = (place.get('displayName') or {}).get('text', '')
+            if not name:
+                continue
+            loc = place.get('location') or {}
+            plat = loc.get('latitude')
+            plng = loc.get('longitude')
+            if not (plat and plng):
+                continue
+            d = dist_km(lat, lng, plat, plng)
+            if d > radius_km:
+                continue
+            # 🔴 نتجاهل المحلات المُغلقة نهائياً - معلومة غائبة عن OSM/Mapbox
+            if place.get('businessStatus') == 'CLOSED_PERMANENTLY':
+                continue
+            places_out.append({
+                'name': name,
+                'addr': place.get('formattedAddress', ''),
+                'dist': d,
+                'lat': plat,
+                'lng': plng,
+                'source': 'google_places',
+                'rating': place.get('rating'),
+                'reviews': place.get('userRatingCount'),
+                'rating_source': 'google_places' if place.get('rating') else None,
+                'google_place_id': place.get('id'),
+            })
+        return cat, places_out
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=12) as executor:
+            futures = [executor.submit(_fetch_one, cat) for cat in cats_to_search]
+            for future in as_completed(futures):
+                cat, places_out = future.result()
+                results[cat] = places_out
+    except Exception:
+        # احتياط: لو فشل التوازي لأي سبب، نرجع لنتيجة فارغة بدل تعطيل الفحص كله
+        pass
+
+    return results
+
+
 # ════════════════════════════════════════════════════════════════
 # 🔄 دمج النتائج من مصادر متعددة
 # ════════════════════════════════════════════════════════════════
@@ -2079,10 +2287,17 @@ def merge_sources(*results_dicts):
     Dedup بـ: (الاسم المُطبع + قرب الإحداثيات 50m)
     """
     merged = {}
-    all_cats = set()
+    # 🔧 إصلاح "الترتيب العشوائي": كان يُجمع هنا في set() عادي، وترتيب
+    # تكرار الـ set في بايثون غير ثابت بين كل تشغيل (hash randomization) -
+    # فيظهر ترتيب مختلف كل مرة تفتح فيها الصفحة. الآن الترتيب ثابت ومنطقي:
+    # حسب تعريف CATEGORIES نفسها (مجمّعة حسب القطاع: طعام، تسوق، سيارات...).
+    all_cats_seen = set()
     for d in results_dicts:
-        all_cats.update(d.keys())
-    
+        all_cats_seen.update(d.keys())
+    all_cats = [c for c in CATEGORIES.keys() if c in all_cats_seen]
+    # أي فئة موجودة بالنتائج لكن غير معرّفة في CATEGORIES (احتياط) تُضاف بالنهاية
+    all_cats += [c for c in all_cats_seen if c not in CATEGORIES]
+
     for cat in all_cats:
         combined = []
         seen_names = set()
@@ -2232,17 +2447,28 @@ def comprehensive_scan(lat, lng, radius_km, sources=None, progress_callback=None
             fsq_results = search_foursquare(lat, lng, radius_km, sources['foursquare_key'])
         except Exception:
             fsq_results = {}
-    
+
+    # 🟢 Google Places (تقييمات + حالة الإغلاق - مفتاح مخفي من إعدادات الخادم)
+    # 🔧 إصلاح: كان المفتاح موجوداً عند خالد لكن غير مستخدم إطلاقاً في الكود
+    gp_results = {}
+    if sources.get('google_places') and sources.get('google_places_key'):
+        if progress_callback:
+            progress_callback("🟢 جاري المسح من Google Places...", 72)
+        try:
+            gp_results = search_google_places(lat, lng, radius_km, sources['google_places_key'])
+        except Exception:
+            gp_results = {}
+
     # 🔄 الدمج
     if progress_callback:
         progress_callback("🔄 جاري دمج النتائج...", 80)
     
-    if osm_results or fsq_results:
-        results = merge_sources(mapbox_results, osm_results, fsq_results)
+    if osm_results or fsq_results or gp_results:
+        results = merge_sources(mapbox_results, osm_results, fsq_results, gp_results)
         # إعادة حساب الاقتطاع بعد الدمج
         truncation_flags = {}
         for cat, places in results.items():
-            # نعتبر الفئة مقصوصة فقط لو معظم النتائج من Mapbox (لم يضف OSM/FSQ شي)
+            # نعتبر الفئة مقصوصة فقط لو معظم النتائج من Mapbox (لم يضف OSM/FSQ/Google شي)
             mapbox_count = sum(1 for p in places if 'mapbox' in p.get('sources', []))
             if mapbox_count >= 100 and len(places) >= 100:
                 truncation_flags[cat] = True
@@ -2256,7 +2482,8 @@ def comprehensive_scan(lat, lng, radius_km, sources=None, progress_callback=None
         'mapbox_total': sum(len(v) for v in mapbox_results.values()),
         'osm_total': sum(len(v) for v in osm_results.values()) if osm_results else 0,
         'foursquare_total': sum(len(v) for v in fsq_results.values()) if fsq_results else 0,
-        'sources_used': [k for k in ['mapbox', 'osm', 'foursquare']
+        'google_places_total': sum(len(v) for v in gp_results.values()) if gp_results else 0,
+        'sources_used': [k for k in ['mapbox', 'osm', 'foursquare', 'google_places']
                          if k == 'mapbox' or (k == 'osm' and sources.get('osm', True)) or sources.get(k)],
         'ratings': ratings,            # 🆕 ملخص تقييمات لكل فئة
         'rated_places_total': rated_total,  # 🆕 إجمالي المحلات المقيَّمة
@@ -2311,18 +2538,19 @@ def neighborhood_dna(pbc):
 # ============================================================================
 # [الدفعة 3] مؤشر الثقة - واقعي ومنخفض السقف
 # ============================================================================
-def confidence_score(pbc, total_places, radius_km, has_field_data=False, has_gov_data=False):
+def confidence_score(pbc, total_places, radius_km, has_field_data=False, has_gov_data=False, ratings_coverage=0.0):
     """
     مؤشر ثقة واقعي للتحليل.
-    السقف الواقعي بدون بيانات إضافية: 55%
-    مع بيانات ميدانية: يرتفع إلى 70%
-    مع بيانات محافظة + ميدانية: 80% كحد أقصى
-    
+    السقف بدون أي بيانات تقييمات: 70%
+    مع تقييمات منافسين حقيقية (Google Places/Foursquare) بتغطية جيدة: 85% كحد أقصى
+
     لا توجد ثقة 100% بدون:
-    - بيانات تقييمات المنافسين (Google Maps)
     - حركة عملاء فعلية (Foot traffic)
     - بيانات إيجارات السوق
-    - استبيان ميداني
+    - استبيان ميداني كامل
+
+    ratings_coverage: نسبة المحلات التي لديها rating فعلي من إجمالي المحلات
+    (تُحسب من source_stats['ratings'] عبر Google Places أو Foursquare - 0 إذا لم يتوفر أي منهما)
     """
     factors = {}
     
@@ -2360,11 +2588,23 @@ def confidence_score(pbc, total_places, radius_km, has_field_data=False, has_gov
     
     # بيانات ميدانية - أقصى 25 نقطة
     factors['ميدانية'] = 25 if has_field_data else 0
-    
+
+    # 🆕 تقييمات منافسين حقيقية (Google Places / Foursquare) - أقصى 15 نقطة
+    # كانت هذه البيانات تُحسب فعلياً (category_ratings_summary) لكن لا تدخل أبداً
+    # في حساب الثقة رغم أن التوثيق القديم يدّعي أنها شرط أساسي للثقة العالية
+    if ratings_coverage >= 0.4:
+        factors['تقييمات'] = 15
+    elif ratings_coverage >= 0.15:
+        factors['تقييمات'] = 8
+    elif ratings_coverage > 0:
+        factors['تقييمات'] = 3
+    else:
+        factors['تقييمات'] = 0
+
     score = sum(factors.values())
-    # سقف نهائي 70% (لا نتعدى لأن البيانات الميدانية + السكان ليست بديل عن:
-    #   - تقييمات المنافسين الفعلية، حركة فعلية، إيجارات حقيقية)
-    score = min(score, 70)
+    # سقف نهائي 85% (لا نصل 100% لأن هذا كله ليس بديلاً عن:
+    #   حركة فعلية على الأرض، إيجارات حقيقية، استبيان ميداني كامل)
+    score = min(score, 85)
     
     if score >= 55:
         level = "جيدة"
@@ -2422,6 +2662,72 @@ def rank_all_activities(pbc, dna, traffic_score, pop_score, acc_score, field_dat
         'fitness_center': {'demand_map': {'عائلي': 75, 'شبابي': 95, 'تجاري': 75, 'طعام': 50, 'خدماتي': 65, 'غير محدد': 75}, 'cap': 4},
         'hotel': {'demand_map': {'عائلي': 40, 'شبابي': 65, 'تجاري': 85, 'طعام': 55, 'خدماتي': 70, 'غير محدد': 55}, 'cap': 4},
         'services': {'demand_map': {'عائلي': 70, 'شبابي': 60, 'تجاري': 80, 'طعام': 50, 'خدماتي': 90, 'غير محدد': 70}, 'cap': 6},
+        # ════════════════════════════════════════════════════════
+        # 🔧 إصلاح: كانت 47 فئة من أصل 67 مُستبعدة تماماً من الترشيح
+        # رغم مسحها فعلياً (لا تظهر أبداً كـ"أفضل نشاط" مهما كانت الفرصة قوية).
+        # أُضيفت هنا كل الفئات القابلة للاستثمار التجاري الخاص.
+        # ════════════════════════════════════════════════════════
+        'plumber': {'demand_map': {'عائلي': 75, 'شبابي': 45, 'تجاري': 55, 'طعام': 25, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 4},
+        'electrician': {'demand_map': {'عائلي': 75, 'شبابي': 45, 'تجاري': 60, 'طعام': 25, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 4},
+        'carpenter': {'demand_map': {'عائلي': 55, 'شبابي': 45, 'تجاري': 55, 'طعام': 20, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 3},
+        'metalworker': {'demand_map': {'عائلي': 55, 'شبابي': 45, 'تجاري': 55, 'طعام': 15, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 2},
+        'ac_repair': {'demand_map': {'عائلي': 70, 'شبابي': 50, 'تجاري': 55, 'طعام': 20, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 4},
+        'painter': {'demand_map': {'عائلي': 55, 'شبابي': 45, 'تجاري': 55, 'طعام': 15, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 3},
+        'furniture': {'demand_map': {'عائلي': 75, 'شبابي': 55, 'تجاري': 70, 'طعام': 35, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 4},
+        'lighting': {'demand_map': {'عائلي': 55, 'شبابي': 60, 'تجاري': 65, 'طعام': 25, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 3},
+        'curtains': {'demand_map': {'عائلي': 55, 'شبابي': 50, 'تجاري': 55, 'طعام': 20, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 3},
+        'gas_supply': {'demand_map': {'عائلي': 85, 'شبابي': 55, 'تجاري': 55, 'طعام': 35, 'خدماتي': 90, 'غير محدد': 80}, 'cap': 3},
+        'locksmith': {'demand_map': {'عائلي': 75, 'شبابي': 65, 'تجاري': 70, 'طعام': 35, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
+        'cleaning': {'demand_map': {'عائلي': 75, 'شبابي': 65, 'تجاري': 75, 'طعام': 40, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 4},
+        'pest_control': {'demand_map': {'عائلي': 55, 'شبابي': 60, 'تجاري': 55, 'طعام': 25, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 3},
+        'tyre_shop': {'demand_map': {'عائلي': 70, 'شبابي': 75, 'تجاري': 75, 'طعام': 30, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 4},
+        'upholstery': {'demand_map': {'عائلي': 55, 'شبابي': 60, 'تجاري': 55, 'طعام': 20, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 2},
+        'car_tinting': {'demand_map': {'عائلي': 55, 'شبابي': 75, 'تجاري': 60, 'طعام': 20, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 3},
+        'auto_parts': {'demand_map': {'عائلي': 75, 'شبابي': 75, 'تجاري': 75, 'طعام': 30, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 4},
+        'oil_change': {'demand_map': {'عائلي': 75, 'شبابي': 65, 'تجاري': 75, 'طعام': 30, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 4},
+        'mobile_repair': {'demand_map': {'عائلي': 75, 'شبابي': 85, 'تجاري': 75, 'طعام': 35, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 5},
+        'mobile_accessories': {'demand_map': {'عائلي': 55, 'شبابي': 80, 'تجاري': 60, 'طعام': 25, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 4},
+        'tailor': {'demand_map': {'عائلي': 85, 'شبابي': 55, 'تجاري': 65, 'طعام': 30, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 4},
+        'abaya_shop': {'demand_map': {'عائلي': 70, 'شبابي': 65, 'تجاري': 55, 'طعام': 20, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 3},
+        'shoe_shop': {'demand_map': {'عائلي': 75, 'شبابي': 75, 'تجاري': 70, 'طعام': 35, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 4},
+        'bakery': {'demand_map': {'عائلي': 85, 'شبابي': 65, 'تجاري': 65, 'طعام': 80, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 5},
+        'sweets': {'demand_map': {'عائلي': 55, 'شبابي': 70, 'تجاري': 55, 'طعام': 65, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 4},
+        'butcher': {'demand_map': {'عائلي': 85, 'شبابي': 65, 'تجاري': 65, 'طعام': 80, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
+        'vegetables': {'demand_map': {'عائلي': 85, 'شبابي': 60, 'تجاري': 70, 'طعام': 80, 'خدماتي': 90, 'غير محدد': 80}, 'cap': 4},
+        'barber': {'demand_map': {'عائلي': 75, 'شبابي': 80, 'تجاري': 65, 'طعام': 35, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 5},
+        'quran_school': {'demand_map': {'عائلي': 90, 'شبابي': 50, 'تجاري': 45, 'طعام': 30, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
+        'training_center': {'demand_map': {'عائلي': 55, 'شبابي': 70, 'تجاري': 70, 'طعام': 25, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 3},
+        'dentist': {'demand_map': {'عائلي': 85, 'شبابي': 65, 'تجاري': 65, 'طعام': 35, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
+        'medical_lab': {'demand_map': {'عائلي': 85, 'شبابي': 65, 'تجاري': 65, 'طعام': 35, 'خدماتي': 80, 'غير محدد': 65}, 'cap': 3},
+        'playground': {'demand_map': {'عائلي': 95, 'شبابي': 55, 'تجاري': 50, 'طعام': 35, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 3},
+        'game_center': {'demand_map': {'عائلي': 60, 'شبابي': 85, 'تجاري': 55, 'طعام': 30, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 3},
+        'cinema': {'demand_map': {'عائلي': 55, 'شبابي': 75, 'تجاري': 60, 'طعام': 30, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 2},
+        'nightclub': {'demand_map': {'عائلي': 25, 'شبابي': 80, 'تجاري': 55, 'طعام': 20, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 2},
+        'museum': {'demand_map': {'عائلي': 55, 'شبابي': 60, 'تجاري': 45, 'طعام': 20, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 1},
+        'tourist_attraction': {'demand_map': {'عائلي': 55, 'شبابي': 60, 'تجاري': 60, 'طعام': 30, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 1},
+        'library': {'demand_map': {'عائلي': 60, 'شبابي': 50, 'تجاري': 55, 'طعام': 15, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 2},
+        'hospital': {'demand_map': {'عائلي': 85, 'شبابي': 65, 'تجاري': 65, 'طعام': 30, 'خدماتي': 80, 'غير محدد': 65}, 'cap': 1},
+        'school': {'demand_map': {'عائلي': 90, 'شبابي': 45, 'تجاري': 40, 'طعام': 25, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 2},
+        'fuel': {'demand_map': {'عائلي': 85, 'شبابي': 60, 'تجاري': 70, 'طعام': 35, 'خدماتي': 90, 'غير محدد': 80}, 'cap': 2},
+        'parking': {'demand_map': {'عائلي': 55, 'شبابي': 60, 'تجاري': 70, 'طعام': 25, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 2},
+        'park': {'demand_map': {'عائلي': 85, 'شبابي': 65, 'تجاري': 45, 'طعام': 30, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 1},
+        # ════════════════════════════════════════════════════════
+        # 🆕 دفعة إضافية - فئات حقيقية طلبها خالد وكانت مفقودة تماماً
+        # ════════════════════════════════════════════════════════
+        'water_desalination': {'demand_map': {'عائلي': 90, 'شبابي': 55, 'تجاري': 55, 'طعام': 40, 'خدماتي': 90, 'غير محدد': 80}, 'cap': 3},
+        'sports_field_rental': {'demand_map': {'عائلي': 60, 'شبابي': 90, 'تجاري': 55, 'طعام': 30, 'خدماتي': 55, 'غير محدد': 60}, 'cap': 2},
+        'laundry': {'demand_map': {'عائلي': 75, 'شبابي': 65, 'تجاري': 70, 'طعام': 35, 'خدماتي': 75, 'غير محدد': 65}, 'cap': 4},
+        'jewelry_store': {'demand_map': {'عائلي': 60, 'شبابي': 50, 'تجاري': 55, 'طعام': 25, 'خدماتي': 45, 'غير محدد': 50}, 'cap': 2},
+        'perfume_shop': {'demand_map': {'عائلي': 60, 'شبابي': 60, 'تجاري': 55, 'طعام': 25, 'خدماتي': 45, 'غير محدد': 50}, 'cap': 3},
+        'flower_shop': {'demand_map': {'عائلي': 55, 'شبابي': 55, 'تجاري': 60, 'طعام': 20, 'خدماتي': 45, 'غير محدد': 45}, 'cap': 2},
+        'optics_shop': {'demand_map': {'عائلي': 70, 'شبابي': 55, 'تجاري': 60, 'طعام': 25, 'خدماتي': 60, 'غير محدد': 55}, 'cap': 2},
+        'real_estate_office': {'demand_map': {'عائلي': 65, 'شبابي': 45, 'تجاري': 75, 'طعام': 25, 'خدماتي': 60, 'غير محدد': 55}, 'cap': 3},
+        'veterinary': {'demand_map': {'عائلي': 65, 'شبابي': 50, 'تجاري': 45, 'طعام': 20, 'خدماتي': 55, 'غير محدد': 50}, 'cap': 2},
+        'pet_shop': {'demand_map': {'عائلي': 55, 'شبابي': 55, 'تجاري': 45, 'طعام': 20, 'خدماتي': 45, 'غير محدد': 45}, 'cap': 2},
+        # ════════════════════════════════════════════════════════
+        # مستبعدة عمداً من الترشيح (وليس نسياناً): مسجد (وقف/حكومي)،
+        # صرّاف آلي وبنك (فروع مؤسسات مالية مرخّصة، ليست استثماراً فردياً قابلاً للفتح)
+        # ════════════════════════════════════════════════════════
     }
 
     main_culture = dna['main']
@@ -5216,6 +5522,10 @@ with st.expander("⚙️ الخيارات المتقدمة - النشاط + ال
             'outscraper_key': outscraper_api_key.strip() if outscraper_api_key else '',
             'apify': use_apify,
             'apify_key': apify_api_key.strip() if apify_api_key else '',
+            # 🆕 Google Places - يعمل تلقائياً لو المفتاح موجود في secrets، بدون أي إدخال
+            # أو ظهور في الواجهة (بخلاف بقية المصادر أعلاه)
+            'google_places': bool(GOOGLE_PLACES_KEY),
+            'google_places_key': GOOGLE_PLACES_KEY,
         }
 
 
@@ -5667,10 +5977,14 @@ if analyze_btn:
             a['field_report_analysis'] = fra
 
     # حساب الثقة النهائية
+    # 🆕 نسبة تغطية التقييمات الفعلية (Google Places / Foursquare) عبر كل الفئات
+    _rated_total = source_stats.get('rated_places_total', 0) if source_stats else 0
+    _ratings_coverage = (_rated_total / a['total_places']) if a.get('total_places') else 0.0
     a['confidence'] = confidence_score(
         pbc, a['total_places'], radius,
         has_field_data=has_field_data,
-        has_gov_data=bool(gov_info)
+        has_gov_data=bool(gov_info),
+        ratings_coverage=_ratings_coverage,
     )
 
     st.session_state.analysis = {
